@@ -22,5 +22,5 @@ DEPS = $(SRCS:%.c=%.d)
 clean:
 	rm -f *.o *.d lcd_cpuinfo
 
-install: weather_board
+install: lcd_cpuinfo
 	install -D -o root -g root ./lcd_cpuinfo /usr/local/bin
