@@ -48,8 +48,8 @@
 #define LCD_ROW             2   // 16 Char
 #define LCD_COL             16  // 2 Line
 #define LCD_BUS             4   // Interface 4 Bit mode
-#define LCD_UPDATE_PERIOD   500 // 500ms
-
+#define LCD_UPDATE_PERIOD   1000 // 500ms
+#define LCD_AUTO_SW_TIMEOUT 5000 // % sec
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
 static int lcdHandle  = 0;
@@ -393,6 +393,8 @@ static void lcd_update (void) {
         lcdPosition (lcdHandle, 0, i);
         for(j = 0; j < LCD_COL; j++)    lcdPutchar(lcdHandle, lcdFb[i][j]);
     }
+    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[0][0]);
+    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[1][0]);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -459,7 +461,8 @@ bool boardDataUpdate(void) {
 //
 //------------------------------------------------------------------------------------------------------------
 int main (int argc, char *argv[]) {
-    int timer = 0 ;
+    int timer = 0;
+    int timer_auto_sw = 0;
 
     wiringPiSetup ();
 
@@ -472,8 +475,19 @@ int main (int argc, char *argv[]) {
 
         if (millis () < timer)  {
             usleep(100000);    // 100ms sleep state
-	    if (!boardDataUpdate()) continue;
+	    if (!boardDataUpdate()) {
+		continue;
+	    }
+	    else {
+		timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
+	    }
         }
+
+	if (millis () >= timer_auto_sw) {
+	    timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
+	    DispMode ++;
+	    DispMode &= 1;
+	}
 
         timer = millis () + LCD_UPDATE_PERIOD;
 
