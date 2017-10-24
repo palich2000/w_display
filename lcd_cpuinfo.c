@@ -393,8 +393,8 @@ static void lcd_update (void) {
         lcdPosition (lcdHandle, 0, i);
         for(j = 0; j < LCD_COL; j++)    lcdPutchar(lcdHandle, lcdFb[i][j]);
     }
-    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[0][0]);
-    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[1][0]);
+//    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[0][0]);
+//    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[1][0]);
 }
 
 //------------------------------------------------------------------------------------------------------------
