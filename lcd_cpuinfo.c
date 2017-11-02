@@ -33,6 +33,8 @@
 #include <wiringSerial.h>
 #include <lcd.h>
 #include <mosquitto.h>
+#include <signal.h>
+#include <pthread.h>
 #include "nxjson.h"
 
 //------------------------------------------------------------------------------------------------------------
@@ -41,6 +43,7 @@
 //
 //------------------------------------------------------------------------------------------------------------
 char * progname = NULL;
+static int do_exit = 0;
 //------------------------------------------------------------------------------------------------------------
 //
 // LCD:
@@ -442,12 +445,12 @@ bool boardDataUpdate(void) {
     if(!digitalRead (PORT_BUTTON1)) {
         if(DispMode)        DispMode--;
         else                DispMode = MAX_DISP_MODE;
-	flag_mod = true;
+        flag_mod = true;
     }
     if(!digitalRead (PORT_BUTTON2)) {
         if(DispMode < MAX_DISP_MODE)    DispMode++;
         else                DispMode = 0;
-	flag_mod = true;
+        flag_mod = true;
     }
 
     //  LED Control
@@ -455,6 +458,12 @@ bool boardDataUpdate(void) {
     digitalWrite(ledPorts[DispMode], 1);
     return(flag_mod);
 }
+
+typedef struct _client_info_t {
+    struct mosquitto *m;
+    pid_t pid;
+    uint32_t tick_ct;
+} t_client_info;
 
 char * mqtt_host = "localhost";
 char * mqtt_username = "owntracks";
@@ -464,8 +473,10 @@ int mqtt_keepalive = 60;
 
 static struct mosquitto *mosq = NULL;
 static int mosq_error = 0;
+static t_client_info client_info;
+static pthread_t mosq_th = 0;
 
-void mosq_log_callback(struct mosquitto *mosq, void *userdata, int level, const char *str) {
+void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) {
     switch(level) {
 //    case MOSQ_LOG_DEBUG:
 //    case MOSQ_LOG_INFO:
@@ -477,31 +488,102 @@ void mosq_log_callback(struct mosquitto *mosq, void *userdata, int level, const 
     }
 }
 
-void mosq_init(){
+static
+void on_connect(struct mosquitto *m, void *udata, int res) {
+    if (res == 0) {             /* success */
+        t_client_info *info = (t_client_info *)udata;
+        mosquitto_subscribe(m, NULL, "home/hall/weather/temperature", 0);
+        mosquitto_subscribe(m, NULL, "home/hall/weather/humidity", 0);
+        size_t sz = 32;
+        char control_pid[sz];
+        if (sz < snprintf(control_pid, sz, "control/%d", info->pid)) {
+            fprintf(stderr, "snprintf\n");
+        }
+        mosquitto_subscribe(m, NULL, control_pid, 0);
+        mosquitto_subscribe(m, NULL, "tick", 0);
+    } else {
+        fprintf(stderr, "connection refused error\n");
+    }
+}
+
+static
+void on_publish(struct mosquitto *m, void *udata, int m_id) {
+    fprintf(stderr, "-- published successfully\n");
+}
+
+static
+void on_subscribe(struct mosquitto *m, void *udata, int mid,
+                  int qos_count, const int *granted_qos) {
+    fprintf(stderr, "-- subscribed successfully\n");
+}
+
+static
+void on_message(struct mosquitto *m, void *udata,
+                const struct mosquitto_message *msg) {
+    if (msg == NULL) {
+        return;
+    }
+    fprintf(stderr, "-- got message @ %s: (%d, QoS %d, %s) '%s'\n",
+            msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
+            msg->payload);
+
+    t_client_info *info = (t_client_info *)udata;
+}
+
+void * mosq_thread_loop(void * p) {
+    t_client_info *info = (t_client_info *)p;
+    fprintf(stderr, "%s\n", __FUNCTION__);
+    while (!do_exit) {
+        int res = mosquitto_loop(info->m, 1000, 1);
+        switch (res) {
+        case MOSQ_ERR_SUCCESS:
+            break;
+        case MOSQ_ERR_INVAL:
+        case MOSQ_ERR_NOMEM:
+        case MOSQ_ERR_NO_CONN:
+        case MOSQ_ERR_CONN_LOST:
+        case MOSQ_ERR_PROTOCOL:
+        case MOSQ_ERR_ERRNO:
+            fprintf(stderr, "%s %s\n", __FUNCTION__, strerror(errno));
+            break;
+        }
+    }
+    pthread_exit(NULL);
+}
+
+void mosq_init() {
 
     bool clean_session = true;
 
     mosquitto_lib_init();
 
-    mosq = mosquitto_new(progname, clean_session, NULL);
+    mosq = mosquitto_new(progname, clean_session, &client_info);
     if(!mosq) {
         fprintf(stderr, "mosq Error: Out of memory.\n");
     } else {
-        mosquitto_log_callback_set(mosq, mosq_log_callback);
+        client_info.m = mosq;
+        mosquitto_log_callback_set(mosq, on_log);
+
+        mosquitto_connect_callback_set(mosq, on_connect);
+        mosquitto_publish_callback_set(mosq, on_publish);
+        mosquitto_subscribe_callback_set(mosq, on_subscribe);
+        mosquitto_message_callback_set(mosq, on_message);
+
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
 
-	fprintf (stderr, "Try connect to Mosquitto server \n");
+        fprintf (stderr, "Try connect to Mosquitto server \n");
         mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (mosq_error) {
             fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
         }
     }
+    pthread_create( &mosq_th, NULL, mosq_thread_loop, &client_info);
 }
 
 void mosq_reconnect() {
     if (mosq_error) {
         mosquitto_disconnect(mosq);
-	fprintf (stderr, "Try connect to Mosquitto server \n");
+        fprintf (stderr, "Try connect to Mosquitto server \n");
         mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (mosq_error) {
             fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
@@ -510,6 +592,7 @@ void mosq_reconnect() {
 }
 
 void mosq_destroy() {
+    pthread_join(mosq_th, NULL);
     if (mosq) {
         mosquitto_disconnect(mosq);
         mosquitto_destroy(mosq);
@@ -532,7 +615,7 @@ void publish_double(char * topic, double value) {
 
 void read_sensors(struct mosquitto *mosq) {
     if (!mosq) return;
-    int i_pressure=0, i_temperature=0, i_humidity=0;
+    int i_pressure = 0, i_temperature = 0, i_humidity = 0;
 
     double temperature = (double)i_temperature / 100.0;
     double humidity = (double)i_humidity / 1024.0;
@@ -548,6 +631,22 @@ void read_sensors(struct mosquitto *mosq) {
     publish_double("home/hall/weather/visible", visible);
     publish_double("home/hall/weather/ir", ir);
 }
+
+//------------------------------------------------------------------------------------------------------------
+//
+// Signal handler
+//
+//------------------------------------------------------------------------------------------------------------
+
+static void sighandler(int signum) {
+    if (signum == SIGPIPE) {
+        signal(SIGPIPE, SIG_IGN);
+    } else {
+        fprintf(stderr, "Signal caught, exiting!\n");
+    }
+    do_exit = 1;
+}
+
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -570,29 +669,36 @@ int main (int argc, char *argv[]) {
         exit(1);
     }
 
+    struct sigaction sigact;
+
+    sigact.sa_handler = sighandler;
+    sigemptyset(&sigact.sa_mask);
+    sigact.sa_flags = 0;
+    sigaction(SIGINT, &sigact, NULL);
+    sigaction(SIGTERM, &sigact, NULL);
+    sigaction(SIGQUIT, &sigact, NULL);
+    sigaction(SIGPIPE, &sigact, NULL);
+
     mosq_init();
 
-    for(;;)    {
+    while(!do_exit)    {
 
         if (millis () < timer)  {
             usleep(100000);    // 100ms sleep state
-	    if (!boardDataUpdate()) {
-		continue;
-	    }
-	    else {
-		timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
-	    }
+            if (!boardDataUpdate()) {
+                continue;
+            } else {
+                timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
+            }
         }
 
-	if (millis () >= timer_auto_sw) {
-	    timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
-	    DispMode ++;
-	    DispMode &= 1;
-	}
+        if (millis () >= timer_auto_sw) {
+            timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
+            DispMode ++;
+            DispMode &= 1;
+        }
 
         timer = millis () + LCD_UPDATE_PERIOD;
-
-	mosq_reconnect();
 
         lcd_update();
     }
