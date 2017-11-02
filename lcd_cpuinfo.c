@@ -33,7 +33,6 @@
 #include <wiringSerial.h>
 #include <lcd.h>
 #include <mosquitto.h>
-
 #include "nxjson.h"
 
 //------------------------------------------------------------------------------------------------------------
@@ -41,7 +40,7 @@
 // Global handle Define
 //
 //------------------------------------------------------------------------------------------------------------
-
+char * progname = NULL;
 //------------------------------------------------------------------------------------------------------------
 //
 // LCD:
@@ -457,6 +456,99 @@ bool boardDataUpdate(void) {
     return(flag_mod);
 }
 
+char * mqtt_host = "localhost";
+char * mqtt_username = "owntracks";
+char * mqtt_password = "zhopa";
+int mqtt_port = 8883;
+int mqtt_keepalive = 60;
+
+static struct mosquitto *mosq = NULL;
+static int mosq_error = 0;
+
+void mosq_log_callback(struct mosquitto *mosq, void *userdata, int level, const char *str) {
+    switch(level) {
+//    case MOSQ_LOG_DEBUG:
+//    case MOSQ_LOG_INFO:
+//    case MOSQ_LOG_NOTICE:
+    case MOSQ_LOG_WARNING:
+    case MOSQ_LOG_ERR: {
+        fprintf(stderr, "%i:%s\n", level, str);
+    }
+    }
+}
+
+void mosq_init(){
+
+    bool clean_session = true;
+
+    mosquitto_lib_init();
+
+    mosq = mosquitto_new(progname, clean_session, NULL);
+    if(!mosq) {
+        fprintf(stderr, "mosq Error: Out of memory.\n");
+    } else {
+        mosquitto_log_callback_set(mosq, mosq_log_callback);
+        mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
+
+	fprintf (stderr, "Try connect to Mosquitto server \n");
+        mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+        if (mosq_error) {
+            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
+        }
+    }
+}
+
+void mosq_reconnect() {
+    if (mosq_error) {
+        mosquitto_disconnect(mosq);
+	fprintf (stderr, "Try connect to Mosquitto server \n");
+        mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+        if (mosq_error) {
+            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
+        }
+    }
+}
+
+void mosq_destroy() {
+    if (mosq) {
+        mosquitto_disconnect(mosq);
+        mosquitto_destroy(mosq);
+    }
+    mosquitto_lib_cleanup();
+}
+
+void publish_double(char * topic, double value) {
+    if (!mosq) return;
+    if (mosq_error) return;
+
+    char text[20];
+    sprintf(text, "%.2f", value);
+    if ((mosq_error = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, false)) != 0) {
+        if (mosq_error) {
+            fprintf (stderr, "Can't publish to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
+        }
+    }
+}
+
+void read_sensors(struct mosquitto *mosq) {
+    if (!mosq) return;
+    int i_pressure=0, i_temperature=0, i_humidity=0;
+
+    double temperature = (double)i_temperature / 100.0;
+    double humidity = (double)i_humidity / 1024.0;
+    double pressure = (double)i_pressure / 100.0;
+
+    double uv_index = 0;
+    double visible = 0;
+    double ir = 0;
+    publish_double("home/hall/weather/temperature", temperature);
+    publish_double("home/hall/weather/humidity", humidity);
+    publish_double("home/hall/weather/pressure", pressure);
+    publish_double("home/hall/weather/uv_index", uv_index);
+    publish_double("home/hall/weather/visible", visible);
+    publish_double("home/hall/weather/ir", ir);
+}
+
 //------------------------------------------------------------------------------------------------------------
 //
 // Start Program
@@ -466,12 +558,19 @@ int main (int argc, char *argv[]) {
     int timer = 0;
     int timer_auto_sw = 0;
 
+    if ((progname = strrchr(argv[0], '/')) == NULL)
+        progname = argv[0];
+    else
+        ++progname;
+
     wiringPiSetup ();
 
     if (system_init() < 0) {
         fprintf (stderr, "%s: System Init failed\n", __func__);
         exit(1);
     }
+
+    mosq_init();
 
     for(;;)    {
 
@@ -493,8 +592,12 @@ int main (int argc, char *argv[]) {
 
         timer = millis () + LCD_UPDATE_PERIOD;
 
+	mosq_reconnect();
+
         lcd_update();
     }
+
+    mosq_destroy();
 
     exit(0);
 }
