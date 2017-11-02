@@ -32,6 +32,8 @@
 #include <wiringPiI2C.h>
 #include <wiringSerial.h>
 #include <lcd.h>
+#include <mosquitto.h>
+
 #include "nxjson.h"
 
 //------------------------------------------------------------------------------------------------------------
