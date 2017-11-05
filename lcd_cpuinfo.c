@@ -35,6 +35,7 @@
 #include <mosquitto.h>
 #include <signal.h>
 #include <pthread.h>
+#include <math.h>
 #include "nxjson.h"
 
 //------------------------------------------------------------------------------------------------------------
@@ -98,6 +99,7 @@ const int ledPorts[] = {
 
 #define MAX_LED_CNT sizeof(ledPorts) / sizeof(ledPorts[0])
 
+void publish_double(char *, double);
 //------------------------------------------------------------------------------------------------------------
 //
 // DispMode
@@ -137,7 +139,7 @@ static void get_littlecore_freq(void) {
 //------------------------------------------------------------------------------------------------------------
 #define FD_BIGCORE_FREQ "/sys/devices/system/cpu/cpu4/cpufreq/scaling_cur_freq"
 
-static void get_bigcore_freq(void) {
+__attribute__((unused)) static void get_bigcore_freq(void) {
     int     n, fd, freq;
     char    buf[LCD_COL];
 
@@ -163,7 +165,7 @@ static void get_bigcore_freq(void) {
 //------------------------------------------------------------------------------------------------------------
 #define FD_SYSTEM_GOVERNOR  "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
 
-static void get_system_governor(void) {
+__attribute__((unused))static void get_system_governor(void) {
     int     n, fd;
     char    buf[LCD_COL];
 
@@ -307,57 +309,167 @@ static char * get_last_line_from_file(char * filename) {
     return(ret);
 }
 
-static void get_weather_temp_hum_press(char * txt_json, double * temp, double * hum, double * press) {
-    if ((!txt_json) || (!*txt_json)) return;
-
-    const nx_json* json = nx_json_parse_utf8(txt_json);
-
-    if (json) {
-        const nx_json * json_temp  = nx_json_get(json, "temperature_C");
-        if ((json_temp) && (temp)) {
-            *temp = json_temp->dbl_value;
-        }
-
-        const nx_json * json_hum  = nx_json_get(json, "humidity");
-        if ((json_hum) && (hum)) {
-            *hum = json_hum->dbl_value;
-        }
-
-        const nx_json * json_press  = nx_json_get(json, "pressure");
-        if ((json_press) && (press)) {
-            *press = json_press->dbl_value;
-        }
-
-        nx_json_free(json);
-    }
-}
 
 #define FD_EXT_SENSOR_FD  "/tmp/weather/rtl_433.log"
 #define FD_INT_SENSOR_FD  "/tmp/weather/weather_board.log"
 
-static void get_weather_info(void) {
+typedef struct _weather_t {
+    char   location[20];
+    double temperature_C;
+    double pressure;
+    double humidity;
+    double uv_index;
+    double visible_light;
+    double ir_light;
+    bool rain;
+    double rain_mm;
+    double wind;
+    double wind_dir;
+} weather_t;
+
+void weather_init(weather_t * weather) {
+    if (!weather) return;
+    bzero(weather, sizeof(weather));
+    strcpy(weather->location, "UNK");
+    weather->temperature_C = NAN;
+    weather->pressure = NAN;
+    weather->humidity = NAN;
+    weather->uv_index = NAN;
+    weather->visible_light = NAN;
+    weather->ir_light = NAN;
+    weather->rain_mm = NAN;
+    weather->wind = NAN;
+    weather->wind_dir = NAN;
+    weather->rain = 3;
+}
+
+static void get_weather_from_json(char * location, weather_t * weather, char * txt_json) {
+    if ((!txt_json) || (!*txt_json) || (!weather)) return;
+    if ((location) && (*location)) {
+        strcpy(weather->location, location);
+    }
+    const nx_json* json = nx_json_parse_utf8(txt_json);
+
+    if (json) {
+        const nx_json * json1;
+        json1  = nx_json_get(json, "temperature_C");
+        if (json1) {
+            weather->temperature_C = json1->dbl_value;
+        }
+
+        json1  = nx_json_get(json, "humidity");
+        if (json1) {
+            weather->humidity = json1->dbl_value;
+        }
+
+        json1  = nx_json_get(json, "pressure");
+        if (json1) {
+            weather->pressure = json1->dbl_value;
+        }
+
+        json1  = nx_json_get(json, "uv_index");
+        if (json1) {
+            weather->uv_index = json1->dbl_value;
+        }
+
+        json1  = nx_json_get(json, "visible");
+        if (json1) {
+            weather->visible_light = json1->dbl_value;
+        }
+        json1  = nx_json_get(json, "ir");
+        if (json1) {
+            weather->ir_light = json1->dbl_value;
+        }
+        nx_json_free(json);
+    }
+}
+
+static bool is_weather_eq(double a, double b) {
+    return roundf(a * 10.) / 10. == roundf(b * 10.) / 10.;
+}
+
+//"home/%s/weather/%s"
+
+static void publist_weather_topic(char * template, char * location, char * name, double value) {
+    char topic[256];
+    sprintf(topic, template, location, name);
+    publish_double(topic, value);
+}
+
+#define WEATHER_INT 0
+#define WEATHER_EXT 1
+#define WEATHER_COUNT 2
+weather_t _weather_int = {};
+weather_t _weather_ext = {};
+weather_t * weather[WEATHER_COUNT] = {&_weather_int, &_weather_ext};
+
+weather_t _old_weather_int = {};
+weather_t _old_weather_ext = {};
+weather_t * old_weather[WEATHER_COUNT] = {&_old_weather_int, &_old_weather_ext};
+
+static void publish_weather(weather_t * old_weather, weather_t * cur_weather, char * topic_template) {
+    if ((!old_weather) || (!cur_weather)) return;
+
+    if (!strlen(old_weather->location)) {
+        weather_init(old_weather);
+    }
+    if (!is_weather_eq(cur_weather->temperature_C, old_weather->temperature_C)) {
+        publist_weather_topic(topic_template, cur_weather->location, "temperature_C", cur_weather->temperature_C);
+    }
+
+    if (!is_weather_eq(cur_weather->humidity, old_weather->humidity)) {
+        publist_weather_topic(topic_template, cur_weather->location, "humidity", cur_weather->humidity);
+    }
+
+    if (!is_weather_eq(cur_weather->pressure, old_weather->pressure)) {
+        publist_weather_topic(topic_template, cur_weather->location, "pressure", cur_weather->pressure);
+    }
+
+    if (!is_weather_eq(cur_weather->visible_light, old_weather->visible_light)) {
+        publist_weather_topic(topic_template, cur_weather->location, "visible_light", cur_weather->visible_light);
+    }
+
+    if (!is_weather_eq(cur_weather->ir_light, old_weather->ir_light)) {
+        publist_weather_topic(topic_template, cur_weather->location, "ir_light", cur_weather->ir_light);
+    }
+
+    if (!is_weather_eq(cur_weather->uv_index, old_weather->uv_index)) {
+        publist_weather_topic(topic_template, cur_weather->location, "uv_index", cur_weather->uv_index);
+    }
+    *old_weather = *cur_weather;
+}
+
+static void publish_weathers(weather_t * old_weather[], weather_t * cur_weather[], char * topic_template) {
+    for (int i = 0; i < WEATHER_COUNT; i++) {
+        publish_weather(old_weather[i], cur_weather[i], topic_template);
+    }
+}
+
+
+static void get_weather_info(weather_t * weather[]) {
+
+    char * txt_json;
+    weather_init(weather[WEATHER_EXT]);
+    txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
+    get_weather_from_json("EX", weather[WEATHER_EXT], txt_json);
+    free(txt_json);
+
+    weather_init(weather[WEATHER_INT]);
+    txt_json = get_last_line_from_file(FD_INT_SENSOR_FD);
+    get_weather_from_json("IN", weather[WEATHER_INT], txt_json);
+    free(txt_json);
+
+}
+
+static void display_weather_info(weather_t * weather[]) {
     char    buf[LCD_COL];
     int     n;
     memset(buf, ' ', sizeof(buf));
-
-    char * txt_json = NULL;
-    double ext_temp = NAN;
-    double ext_hum = NAN;
-    double in_temp = NAN;
-    double in_hum = NAN;
-    double in_press = NAN;
-
-    txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
-    get_weather_temp_hum_press(txt_json, &ext_temp, &ext_hum, NULL);
-    free(txt_json);
-
-    txt_json = get_last_line_from_file(FD_INT_SENSOR_FD);
-    get_weather_temp_hum_press(txt_json, &in_temp, &in_hum, &in_press);
-    free(txt_json);
-
-    n = sprintf(buf, "IN%5.1f %2.0f%%", in_temp, roundf(in_hum));
+    n = sprintf(buf, "%2s%5.1f %2.0f%%",
+                weather[WEATHER_INT]->location, weather[WEATHER_INT]->temperature_C, roundf(weather[WEATHER_INT]->humidity));
     strncpy((char*)&lcdFb[0][0], buf, n);
-    n = sprintf(buf, "EX%5.1f %2ld%% %3.0f", ext_temp, lroundf(ext_hum), roundf(0.750062 * in_press));
+    n = sprintf(buf, "%2s%5.1f %2.0f%% %3.0f",
+                weather[WEATHER_EXT]->location, weather[WEATHER_EXT]->temperature_C, roundf(weather[WEATHER_EXT]->humidity), roundf(0.750062 * weather[WEATHER_INT]->pressure));
     strncpy((char*)&lcdFb[1][0], buf, n);
 }
 
@@ -380,7 +492,7 @@ static void lcd_update (void) {
         get_date_time();
         break;
     case    1:
-        get_weather_info();
+        display_weather_info(weather);
         break;
     case    2:
         get_ethernet_ip();
@@ -397,8 +509,6 @@ static void lcd_update (void) {
         lcdPosition (lcdHandle, 0, i);
         for(j = 0; j < LCD_COL; j++)    lcdPutchar(lcdHandle, lcdFb[i][j]);
     }
-//    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[0][0]);
-//    printf("(%.*s)\n", LCD_COL , (char*)&lcdFb[1][0]);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -472,7 +582,6 @@ int mqtt_port = 8883;
 int mqtt_keepalive = 60;
 
 static struct mosquitto *mosq = NULL;
-static int mosq_error = 0;
 static t_client_info client_info;
 static pthread_t mosq_th = 0;
 
@@ -491,16 +600,9 @@ void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) 
 static
 void on_connect(struct mosquitto *m, void *udata, int res) {
     if (res == 0) {             /* success */
-        t_client_info *info = (t_client_info *)udata;
-        mosquitto_subscribe(m, NULL, "home/hall/weather/temperature", 0);
-        mosquitto_subscribe(m, NULL, "home/hall/weather/humidity", 0);
-        size_t sz = 32;
-        char control_pid[sz];
-        if (sz < snprintf(control_pid, sz, "control/%d", info->pid)) {
-            fprintf(stderr, "snprintf\n");
-        }
-        mosquitto_subscribe(m, NULL, control_pid, 0);
-        mosquitto_subscribe(m, NULL, "tick", 0);
+        //t_client_info *info = (t_client_info *)udata;
+        mosquitto_subscribe(m, NULL, "home/+/weather/#", 0);
+        mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
     } else {
         fprintf(stderr, "connection refused error\n");
     }
@@ -525,11 +627,11 @@ void on_message(struct mosquitto *m, void *udata,
     }
     fprintf(stderr, "-- got message @ %s: (%d, QoS %d, %s) '%s'\n",
             msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
-            msg->payload);
-
-    t_client_info *info = (t_client_info *)udata;
+            (char*)msg->payload);
+    //t_client_info *info = (t_client_info *)udata;
 }
 
+static
 void * mosq_thread_loop(void * p) {
     t_client_info *info = (t_client_info *)p;
     fprintf(stderr, "%s\n", __FUNCTION__);
@@ -538,19 +640,26 @@ void * mosq_thread_loop(void * p) {
         switch (res) {
         case MOSQ_ERR_SUCCESS:
             break;
+        case MOSQ_ERR_NO_CONN: {
+            int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+            if (res) {
+                fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(res));
+            }
+            break;
+        }
         case MOSQ_ERR_INVAL:
         case MOSQ_ERR_NOMEM:
-        case MOSQ_ERR_NO_CONN:
         case MOSQ_ERR_CONN_LOST:
         case MOSQ_ERR_PROTOCOL:
         case MOSQ_ERR_ERRNO:
-            fprintf(stderr, "%s %s\n", __FUNCTION__, strerror(errno));
+            fprintf(stderr, "%s %s %s\n", __FUNCTION__, strerror(errno), mosquitto_strerror(res));
             break;
         }
     }
     pthread_exit(NULL);
 }
 
+static
 void mosq_init() {
 
     bool clean_session = true;
@@ -572,25 +681,15 @@ void mosq_init() {
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
 
         fprintf (stderr, "Try connect to Mosquitto server \n");
-        mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
-        if (mosq_error) {
-            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
+        int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+        if (res) {
+            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(res));
         }
     }
     pthread_create( &mosq_th, NULL, mosq_thread_loop, &client_info);
 }
 
-void mosq_reconnect() {
-    if (mosq_error) {
-        mosquitto_disconnect(mosq);
-        fprintf (stderr, "Try connect to Mosquitto server \n");
-        mosq_error = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
-        if (mosq_error) {
-            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
-        }
-    }
-}
-
+static
 void mosq_destroy() {
     pthread_join(mosq_th, NULL);
     if (mosq) {
@@ -600,36 +699,17 @@ void mosq_destroy() {
     mosquitto_lib_cleanup();
 }
 
-void publish_double(char * topic, double value) {
-    if (!mosq) return;
-    if (mosq_error) return;
 
+void publish_double(char * topic, double value) {
+    int res;
+    if (!mosq) return;
     char text[20];
     sprintf(text, "%.2f", value);
-    if ((mosq_error = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, false)) != 0) {
-        if (mosq_error) {
-            fprintf (stderr, "Can't publish to Mosquitto server %s\n", mosquitto_strerror(mosq_error));
+    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, false)) != 0) {
+        if (res) {
+            fprintf (stderr, "Can't publish to Mosquitto server %s\n", mosquitto_strerror(res));
         }
     }
-}
-
-void read_sensors(struct mosquitto *mosq) {
-    if (!mosq) return;
-    int i_pressure = 0, i_temperature = 0, i_humidity = 0;
-
-    double temperature = (double)i_temperature / 100.0;
-    double humidity = (double)i_humidity / 1024.0;
-    double pressure = (double)i_pressure / 100.0;
-
-    double uv_index = 0;
-    double visible = 0;
-    double ir = 0;
-    publish_double("home/hall/weather/temperature", temperature);
-    publish_double("home/hall/weather/humidity", humidity);
-    publish_double("home/hall/weather/pressure", pressure);
-    publish_double("home/hall/weather/uv_index", uv_index);
-    publish_double("home/hall/weather/visible", visible);
-    publish_double("home/hall/weather/ir", ir);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -682,7 +762,6 @@ int main (int argc, char *argv[]) {
     mosq_init();
 
     while(!do_exit)    {
-
         if (millis () < timer)  {
             usleep(100000);    // 100ms sleep state
             if (!boardDataUpdate()) {
@@ -700,6 +779,8 @@ int main (int argc, char *argv[]) {
 
         timer = millis () + LCD_UPDATE_PERIOD;
 
+        get_weather_info(weather);
+        publish_weathers(old_weather, weather, "home/%s/weather/%s");
         lcd_update();
     }
 
