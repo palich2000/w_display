@@ -384,8 +384,9 @@ static void get_weather_from_json(char * location, weather_t * weather, char * t
     }
 }
 
-static bool is_weather_eq(double a, double b) {
-    return roundf(a * 10.) / 10. == roundf(b * 10.) / 10.;
+static bool is_need_publish(double curr, double old) {
+    if (isnan(curr)) return(false);
+    return roundf(curr * 10.) / 10. == roundf(old * 10.) / 10.;
 }
 
 //"home/%s/weather/%s"
@@ -413,27 +414,27 @@ static void publish_weather(weather_t * old_weather, weather_t * cur_weather, ch
     if (!strlen(old_weather->location)) {
         weather_init(old_weather);
     }
-    if (!is_weather_eq(cur_weather->temperature_C, old_weather->temperature_C)) {
+    if (is_need_publish(cur_weather->temperature_C, old_weather->temperature_C)) {
         publist_weather_topic(topic_template, cur_weather->location, "temperature_C", cur_weather->temperature_C);
     }
 
-    if (!is_weather_eq(cur_weather->humidity, old_weather->humidity)) {
+    if (is_need_publish(cur_weather->humidity, old_weather->humidity)) {
         publist_weather_topic(topic_template, cur_weather->location, "humidity", cur_weather->humidity);
     }
 
-    if (!is_weather_eq(cur_weather->pressure, old_weather->pressure)) {
+    if (is_need_publish(cur_weather->pressure, old_weather->pressure)) {
         publist_weather_topic(topic_template, cur_weather->location, "pressure", cur_weather->pressure);
     }
 
-    if (!is_weather_eq(cur_weather->visible_light, old_weather->visible_light)) {
+    if (is_need_publish(cur_weather->visible_light, old_weather->visible_light)) {
         publist_weather_topic(topic_template, cur_weather->location, "visible_light", cur_weather->visible_light);
     }
 
-    if (!is_weather_eq(cur_weather->ir_light, old_weather->ir_light)) {
+    if (is_need_publish(cur_weather->ir_light, old_weather->ir_light)) {
         publist_weather_topic(topic_template, cur_weather->location, "ir_light", cur_weather->ir_light);
     }
 
-    if (!is_weather_eq(cur_weather->uv_index, old_weather->uv_index)) {
+    if (is_need_publish(cur_weather->uv_index, old_weather->uv_index)) {
         publist_weather_topic(topic_template, cur_weather->location, "uv_index", cur_weather->uv_index);
     }
     *old_weather = *cur_weather;
@@ -451,24 +452,28 @@ static void get_weather_info(weather_t * weather[]) {
     char * txt_json;
     weather_init(weather[WEATHER_EXT]);
     txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
-    get_weather_from_json("EX", weather[WEATHER_EXT], txt_json);
-    free(txt_json);
+    if (!txt_json) {
+	get_weather_from_json("EX", weather[WEATHER_EXT], txt_json);
+	free(txt_json);
+    }
 
     weather_init(weather[WEATHER_INT]);
     txt_json = get_last_line_from_file(FD_INT_SENSOR_FD);
-    get_weather_from_json("IN", weather[WEATHER_INT], txt_json);
-    free(txt_json);
+    if (!txt_json) {
+	get_weather_from_json("IN", weather[WEATHER_INT], txt_json);
+	free(txt_json);
+    }
 
 }
 
 static void display_weather_info(weather_t * weather[]) {
-    char    buf[LCD_COL];
+    char    buf[LCD_COL+1];
     int     n;
     memset(buf, ' ', sizeof(buf));
-    n = sprintf(buf, "%2s%5.1f %2.0f%%",
+    n = snprintf(buf,sizeof(buf)-1,"%2s%5.1f %2.0f%%",
                 weather[WEATHER_INT]->location, weather[WEATHER_INT]->temperature_C, roundf(weather[WEATHER_INT]->humidity));
     strncpy((char*)&lcdFb[0][0], buf, n);
-    n = sprintf(buf, "%2s%5.1f %2.0f%% %3.0f",
+    n = snprintf(buf,sizeof(buf)-1, "%2s%5.1f %2.0f%% %3.0f",
                 weather[WEATHER_EXT]->location, weather[WEATHER_EXT]->temperature_C, roundf(weather[WEATHER_EXT]->humidity), roundf(0.750062 * weather[WEATHER_INT]->pressure));
     strncpy((char*)&lcdFb[1][0], buf, n);
 }
@@ -705,7 +710,7 @@ void publish_double(char * topic, double value) {
     if (!mosq) return;
     char text[20];
     sprintf(text, "%.2f", value);
-    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, false)) != 0) {
+    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, true)) != 0) {
         if (res) {
             fprintf (stderr, "Can't publish to Mosquitto server %s\n", mosquitto_strerror(res));
         }
@@ -778,7 +783,6 @@ int main (int argc, char *argv[]) {
         }
 
         timer = millis () + LCD_UPDATE_PERIOD;
-
         get_weather_info(weather);
         publish_weathers(old_weather, weather, "home/%s/weather/%s");
         lcd_update();
