@@ -594,7 +594,7 @@ static void publish_state(char * topic_template)
 	snprintf(buf,sizeof(buf)-1,"{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
 		tm_buffer, info.uptime/3600, info.loads[0]/65536.0, temp_C);
 	snprintf(topic, sizeof(topic)-1, topic_template, hostname);
-	daemon_log(LOG_ERR,"%s %s", topic, buf);
+	daemon_log(LOG_INFO,"%s %s", topic, buf);
 	if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
     	    daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
 	}
@@ -762,7 +762,7 @@ void on_publish(struct mosquitto *m, void *udata, int m_id) {
 static
 void on_subscribe(struct mosquitto *m, void *udata, int mid,
                   int qos_count, const int *granted_qos) {
-    daemon_log(LOG_ERR, "-- subscribed successfully");
+    daemon_log(LOG_INFO, "-- subscribed successfully");
 }
 
 static
@@ -771,7 +771,7 @@ void on_message(struct mosquitto *m, void *udata,
     if (msg == NULL) {
         return;
     }
-    daemon_log(LOG_ERR, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
+    daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
             msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
             (char*)msg->payload);
     //t_client_info *info = (t_client_info *)udata;
@@ -780,7 +780,7 @@ void on_message(struct mosquitto *m, void *udata,
 static
 void * mosq_thread_loop(void * p) {
     t_client_info *info = (t_client_info *)p;
-    daemon_log(LOG_ERR, "%s", __FUNCTION__);
+    daemon_log(LOG_INFO, "%s", __FUNCTION__);
     while (!do_exit) {
         int res = mosquitto_loop(info->m, 1000, 1);
         switch (res) {
@@ -802,6 +802,7 @@ void * mosq_thread_loop(void * p) {
             break;
         }
     }
+    daemon_log(LOG_INFO, "%s finished", __FUNCTION__);
     pthread_exit(NULL);
 }
 
@@ -826,7 +827,7 @@ void mosq_init() {
 
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
 
-        daemon_log(LOG_ERR, "Try connect to Mosquitto server ");
+        daemon_log(LOG_INFO, "Try connect to Mosquitto server ");
         int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (res) {
             daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
@@ -869,7 +870,7 @@ static
 void * main_loop (void * p) {
     int timer = 0;
     int timer_auto_sw = 0;
-
+    daemon_log(LOG_INFO, "%s", __FUNCTION__);
     while(!do_exit)    {
         if (millis () < timer)  {
             usleep(100000);    // 100ms sleep state
@@ -893,7 +894,7 @@ void * main_loop (void * p) {
 	publish_state("tele/%s/STATE");
         lcd_update();
     }
-
+    daemon_log(LOG_INFO, "%s finished", __FUNCTION__);
     pthread_exit(NULL);
 }
 
