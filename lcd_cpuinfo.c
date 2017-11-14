@@ -1,13 +1,3 @@
-//------------------------------------------------------------------------------------------------------------
-//
-// ODROID-XU4 printing CPU informations Test Application.
-//
-// Defined port number is wiringPi port number.
-//
-// Compile : gcc -o <create excute file name> <source file name> -lwiringPi -lwiringPiDev -lpthread
-// Run : sudo ./<created excute file name>
-//
-//------------------------------------------------------------------------------------------------------------
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,7 +25,20 @@
 #include <mosquitto.h>
 #include <signal.h>
 #include <pthread.h>
+#include <sys/sysinfo.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+
+ 
 #include <math.h>
+#include "dpid.h"
+#include "dmem.h"
+#include "dlog.h"
+#include "dfork.h"
+#include "dsignal.h"
+#include "version.h"
 #include "nxjson.h"
 
 //------------------------------------------------------------------------------------------------------------
@@ -43,7 +46,12 @@
 // Global handle Define
 //
 //------------------------------------------------------------------------------------------------------------
+#define HOSTNAME_SIZE 256
+#define CDIR "./"
 char * progname = NULL;
+char * hostname = NULL;
+char * pathname = NULL;
+const char * const application = "lcd_cpuinfo";
 static int do_exit = 0;
 //------------------------------------------------------------------------------------------------------------
 //
@@ -53,8 +61,10 @@ static int do_exit = 0;
 #define LCD_ROW             2   // 16 Char
 #define LCD_COL             16  // 2 Line
 #define LCD_BUS             4   // Interface 4 Bit mode
-#define LCD_UPDATE_PERIOD   1000 // 500ms
-#define LCD_AUTO_SW_TIMEOUT 5000 // % sec
+#define LCD_UPDATE_PERIOD   1000 // 1 sec
+#define LCD_AUTO_SW_TIMEOUT 5000 // 5 sec
+#define STATE_PUBLISH_INTERVAL 30000 // 30 sec
+
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
 static int lcdHandle  = 0;
@@ -84,6 +94,27 @@ static int DispMode = 1;
 
 //------------------------------------------------------------------------------------------------------------
 //
+// Mosquitto:
+//
+//------------------------------------------------------------------------------------------------------------
+typedef struct _client_info_t {
+    struct mosquitto *m;
+    pid_t pid;
+    uint32_t tick_ct;
+} t_client_info;
+
+char * mqtt_host = "localhost";
+char * mqtt_username = "owntracks";
+char * mqtt_password = "zhopa";
+int mqtt_port = 8883;
+int mqtt_keepalive = 60;
+
+static struct mosquitto *mosq = NULL;
+static t_client_info client_info;
+static pthread_t mosq_th = 0;
+
+//------------------------------------------------------------------------------------------------------------
+//
 // LED:
 //
 //------------------------------------------------------------------------------------------------------------
@@ -100,6 +131,74 @@ const int ledPorts[] = {
 #define MAX_LED_CNT sizeof(ledPorts) / sizeof(ledPorts[0])
 
 void publish_double(char *, double);
+
+//------------------------------------------------------------------------------------------------------------
+//
+// Daemon commands callbacks:
+//
+//------------------------------------------------------------------------------------------------------------
+pid_t main_pid;
+
+enum command_int_t {
+    CMD_NONE = 0,
+    CMD_RECONFIGURE,
+    CMD_SHUTDOWN,
+    CMD_RESTART,
+    CMD_CHECK,
+    CMD_NOT_FOUND = -1,
+};
+
+typedef int (* daemon_command_callback_t)(void*);
+
+typedef struct daemon_command_t {
+    char * command_name;
+    daemon_command_callback_t  command_callback;
+    int command_int;
+} DAEMON_COMMAND_T;
+
+int check_callback(void * UNUSED(param)) {
+    return(10);
+}
+
+
+int reconfigure_callback(void * UNUSED(param)) {
+
+    if (daemon_pid_file_kill(SIGUSR1) < 0) {
+        daemon_log(LOG_WARNING, "Failed to reconfiguring");
+    } else {
+        daemon_log(LOG_INFO, "OK");
+    }
+    return(10);
+}
+
+int shutdown_callback(void * UNUSED(param)) {
+    int ret;
+    daemon_log(LOG_INFO, "Try to shutdown self....");
+    if ((ret = daemon_pid_file_kill_wait(SIGINT, 10)) < 0) {
+        daemon_log(LOG_WARNING, "Failed to shutdown daemon %d %s", errno, strerror(errno));
+        daemon_log(LOG_WARNING, "Try to terminating self....");
+        if (daemon_pid_file_kill_wait(SIGKILL, 0) < 0) {
+            daemon_log(LOG_WARNING, "Failed to killing daemon %d %s", errno, strerror(errno));
+        } else {
+            daemon_log(LOG_WARNING, "Daemon terminated");
+        }
+    } else
+        daemon_log(LOG_INFO, "OK");
+    return(10);
+}
+
+int restart_callback(void * UNUSED(param)) {
+    shutdown_callback(NULL);
+    return(0);
+}
+
+DAEMON_COMMAND_T daemon_commands[] = {
+    {command_name: "reconfigure", command_callback: reconfigure_callback, command_int: CMD_RECONFIGURE},
+    {command_name: "shutdown", command_callback: shutdown_callback, command_int: CMD_SHUTDOWN},
+    {command_name: "restart", command_callback: restart_callback, command_int: CMD_RESTART},
+    {command_name: "check", command_callback: check_callback, command_int: CMD_CHECK},
+};
+
 //------------------------------------------------------------------------------------------------------------
 //
 // DispMode
@@ -120,7 +219,7 @@ static void get_littlecore_freq(void) {
     memset(buf, ' ', sizeof(buf));
 
     if((fd = open(FD_LITTLECORE_FREQ, O_RDONLY)) < 0)   {
-        fprintf(stderr, "%s : file open error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file open error!", __func__);
     } else    {
         read(fd, buf, sizeof(buf));
         close(fd);
@@ -146,7 +245,7 @@ __attribute__((unused)) static void get_bigcore_freq(void) {
     memset(buf, ' ', sizeof(buf));
 
     if((fd = open(FD_BIGCORE_FREQ, O_RDONLY)) < 0)   {
-        fprintf(stderr, "%s : file open error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file open error!", __func__);
     } else    {
         n = read(fd, buf, sizeof(buf));
         close(fd);
@@ -172,7 +271,7 @@ __attribute__((unused))static void get_system_governor(void) {
     memset(buf, ' ', sizeof(buf));
 
     if((fd = open(FD_SYSTEM_GOVERNOR, O_RDONLY)) < 0)   {
-        fprintf(stderr, "%s : file open error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file open error!", __func__);
     } else    {
         n = read(fd, buf, sizeof(buf));
         close(fd);
@@ -249,7 +348,7 @@ static void get_cpu_temperature(void) {
     memset(buf, ' ', sizeof(buf));
 
     if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
-        fprintf(stderr, "%s : file open error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file open error!", __func__);
     } else    {
         read(fd, buf, LCD_COL);
         close(fd);
@@ -280,7 +379,7 @@ static char * get_last_line_from_file(char * filename) {
     FILE *fp = fopen(filename, "r");
 
     if (fp == NULL) {
-        fprintf(stderr, "%s : file open error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file open error!", __func__);
         return(ret);
     }
 
@@ -303,7 +402,7 @@ static char * get_last_line_from_file(char * filename) {
             memmove(ret, &buffer[pos[1] + 1], l - 1);
         }
     } else {
-        fprintf(stderr, "%s : file read error!\n", __func__);
+        daemon_log(LOG_ERR, "%s : file read error!", __func__);
     }
     fclose(fp);
     return(ret);
@@ -386,7 +485,8 @@ static void get_weather_from_json(char * location, weather_t * weather, char * t
 
 static bool is_need_publish(double curr, double old) {
     if (isnan(curr)) return(false);
-    return roundf(curr * 10.) / 10. == roundf(old * 10.) / 10.;
+    if (!isnan(curr) && isnan(old)) return(true);
+    return roundf(curr * 10.) / 10. != roundf(old * 10.) / 10.;
 }
 
 //"home/%s/weather/%s"
@@ -414,6 +514,7 @@ static void publish_weather(weather_t * old_weather, weather_t * cur_weather, ch
     if (!strlen(old_weather->location)) {
         weather_init(old_weather);
     }
+
     if (is_need_publish(cur_weather->temperature_C, old_weather->temperature_C)) {
         publist_weather_topic(topic_template, cur_weather->location, "temperature_C", cur_weather->temperature_C);
     }
@@ -437,14 +538,69 @@ static void publish_weather(weather_t * old_weather, weather_t * cur_weather, ch
     if (is_need_publish(cur_weather->uv_index, old_weather->uv_index)) {
         publist_weather_topic(topic_template, cur_weather->location, "uv_index", cur_weather->uv_index);
     }
+
     *old_weather = *cur_weather;
 }
 
 static void publish_weathers(weather_t * old_weather[], weather_t * cur_weather[], char * topic_template) {
+/*
     for (int i = 0; i < WEATHER_COUNT; i++) {
         publish_weather(old_weather[i], cur_weather[i], topic_template);
     }
+*/
 }
+
+static void publish_sensors(weather_t * cur_weather[],char * topic_template)
+{
+    char topic[128] = {};
+    snprintf(topic,sizeof(topic)-1,topic_template,hostname);
+}
+
+static void publish_state(char * topic_template)
+{
+    // "Time":"2017-03-04T13:37:24" "Uptime":  "Cputemp":
+    static int timer_publish_state = 0;
+
+    if (timer_publish_state >  millis()) return;
+    else {
+	timer_publish_state = millis () + STATE_PUBLISH_INTERVAL;
+    }
+
+    time_t timer;
+    char tm_buffer[26]={};
+    char buf[255] = {};
+    char topic[128] = {};
+    struct tm* tm_info;
+    struct sysinfo info;
+    int res;
+
+    time(&timer);
+    tm_info = localtime(&timer);
+    strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
+
+    if (!sysinfo(&info)) {
+	int fd;
+	char tmp_buf[20];
+	memset(tmp_buf, ' ', sizeof(tmp_buf));
+	if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
+    	    daemon_log(LOG_ERR, "%s : file open error!", __func__);
+	} else    {
+    	    read(fd, buf, sizeof(tmp_buf));
+    	    close(fd);
+	}
+        int temp_C = atoi(buf) / 1000;
+ 
+
+	snprintf(buf,sizeof(buf)-1,"{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
+		tm_buffer, info.uptime/3600, info.loads[0]/65536.0, temp_C);
+	snprintf(topic, sizeof(topic)-1, topic_template, hostname);
+	daemon_log(LOG_ERR,"%s %s", topic, buf);
+	if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+    	    daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
+	}
+    }
+}
+
 
 
 static void get_weather_info(weather_t * weather[]) {
@@ -452,14 +608,14 @@ static void get_weather_info(weather_t * weather[]) {
     char * txt_json;
     weather_init(weather[WEATHER_EXT]);
     txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
-    if (!txt_json) {
+    if (txt_json) {
 	get_weather_from_json("EX", weather[WEATHER_EXT], txt_json);
 	free(txt_json);
     }
 
     weather_init(weather[WEATHER_INT]);
     txt_json = get_last_line_from_file(FD_INT_SENSOR_FD);
-    if (!txt_json) {
+    if (txt_json) {
 	get_weather_from_json("IN", weather[WEATHER_INT], txt_json);
 	free(txt_json);
     }
@@ -530,7 +686,7 @@ int system_init(void) {
                          PORT_LCD_D4, PORT_LCD_D5, PORT_LCD_D6, PORT_LCD_D7, 0, 0, 0, 0);
 
     if(lcdHandle < 0)   {
-        fprintf(stderr, "%s : lcdInit failed!\n", __func__);
+        daemon_log(LOG_ERR, "%s : lcdInit failed!", __func__);
         return -1;
     }
 
@@ -574,21 +730,6 @@ bool boardDataUpdate(void) {
     return(flag_mod);
 }
 
-typedef struct _client_info_t {
-    struct mosquitto *m;
-    pid_t pid;
-    uint32_t tick_ct;
-} t_client_info;
-
-char * mqtt_host = "localhost";
-char * mqtt_username = "owntracks";
-char * mqtt_password = "zhopa";
-int mqtt_port = 8883;
-int mqtt_keepalive = 60;
-
-static struct mosquitto *mosq = NULL;
-static t_client_info client_info;
-static pthread_t mosq_th = 0;
 
 void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) {
     switch(level) {
@@ -597,7 +738,7 @@ void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) 
 //    case MOSQ_LOG_NOTICE:
     case MOSQ_LOG_WARNING:
     case MOSQ_LOG_ERR: {
-        fprintf(stderr, "%i:%s\n", level, str);
+        daemon_log(LOG_ERR, "%i:%s", level, str);
     }
     }
 }
@@ -609,19 +750,19 @@ void on_connect(struct mosquitto *m, void *udata, int res) {
         mosquitto_subscribe(m, NULL, "home/+/weather/#", 0);
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
     } else {
-        fprintf(stderr, "connection refused error\n");
+        daemon_log(LOG_ERR, "connection refused error");
     }
 }
 
 static
 void on_publish(struct mosquitto *m, void *udata, int m_id) {
-    fprintf(stderr, "-- published successfully\n");
+    //daemon_log(LOG_ERR, "-- published successfully");
 }
 
 static
 void on_subscribe(struct mosquitto *m, void *udata, int mid,
                   int qos_count, const int *granted_qos) {
-    fprintf(stderr, "-- subscribed successfully\n");
+    daemon_log(LOG_ERR, "-- subscribed successfully");
 }
 
 static
@@ -630,7 +771,7 @@ void on_message(struct mosquitto *m, void *udata,
     if (msg == NULL) {
         return;
     }
-    fprintf(stderr, "-- got message @ %s: (%d, QoS %d, %s) '%s'\n",
+    daemon_log(LOG_ERR, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
             msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
             (char*)msg->payload);
     //t_client_info *info = (t_client_info *)udata;
@@ -639,7 +780,7 @@ void on_message(struct mosquitto *m, void *udata,
 static
 void * mosq_thread_loop(void * p) {
     t_client_info *info = (t_client_info *)p;
-    fprintf(stderr, "%s\n", __FUNCTION__);
+    daemon_log(LOG_ERR, "%s", __FUNCTION__);
     while (!do_exit) {
         int res = mosquitto_loop(info->m, 1000, 1);
         switch (res) {
@@ -648,7 +789,7 @@ void * mosq_thread_loop(void * p) {
         case MOSQ_ERR_NO_CONN: {
             int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
             if (res) {
-                fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(res));
+                daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
             }
             break;
         }
@@ -657,7 +798,7 @@ void * mosq_thread_loop(void * p) {
         case MOSQ_ERR_CONN_LOST:
         case MOSQ_ERR_PROTOCOL:
         case MOSQ_ERR_ERRNO:
-            fprintf(stderr, "%s %s %s\n", __FUNCTION__, strerror(errno), mosquitto_strerror(res));
+            daemon_log(LOG_ERR, "%s %s %s", __FUNCTION__, strerror(errno), mosquitto_strerror(res));
             break;
         }
     }
@@ -673,7 +814,7 @@ void mosq_init() {
 
     mosq = mosquitto_new(progname, clean_session, &client_info);
     if(!mosq) {
-        fprintf(stderr, "mosq Error: Out of memory.\n");
+        daemon_log(LOG_ERR, "mosq Error: Out of memory.");
     } else {
         client_info.m = mosq;
         mosquitto_log_callback_set(mosq, on_log);
@@ -685,13 +826,14 @@ void mosq_init() {
 
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
 
-        fprintf (stderr, "Try connect to Mosquitto server \n");
+        daemon_log(LOG_ERR, "Try connect to Mosquitto server ");
         int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (res) {
-            fprintf (stderr, "Can't connect to Mosquitto server %s\n", mosquitto_strerror(res));
+            daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
         }
+	pthread_create(&mosq_th, NULL, mosq_thread_loop, &client_info);
     }
-    pthread_create( &mosq_th, NULL, mosq_thread_loop, &client_info);
+    
 }
 
 static
@@ -712,59 +854,21 @@ void publish_double(char * topic, double value) {
     sprintf(text, "%.2f", value);
     if ((res = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, true)) != 0) {
         if (res) {
-            fprintf (stderr, "Can't publish to Mosquitto server %s\n", mosquitto_strerror(res));
+            daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
         }
     }
 }
 
 //------------------------------------------------------------------------------------------------------------
 //
-// Signal handler
+// main loop:
 //
 //------------------------------------------------------------------------------------------------------------
 
-static void sighandler(int signum) {
-    if (signum == SIGPIPE) {
-        signal(SIGPIPE, SIG_IGN);
-    } else {
-        fprintf(stderr, "Signal caught, exiting!\n");
-    }
-    do_exit = 1;
-}
-
-
-//------------------------------------------------------------------------------------------------------------
-//
-// Start Program
-//
-//------------------------------------------------------------------------------------------------------------
-int main (int argc, char *argv[]) {
+static
+void * main_loop (void * p) {
     int timer = 0;
     int timer_auto_sw = 0;
-
-    if ((progname = strrchr(argv[0], '/')) == NULL)
-        progname = argv[0];
-    else
-        ++progname;
-
-    wiringPiSetup ();
-
-    if (system_init() < 0) {
-        fprintf (stderr, "%s: System Init failed\n", __func__);
-        exit(1);
-    }
-
-    struct sigaction sigact;
-
-    sigact.sa_handler = sighandler;
-    sigemptyset(&sigact.sa_mask);
-    sigact.sa_flags = 0;
-    sigaction(SIGINT, &sigact, NULL);
-    sigaction(SIGTERM, &sigact, NULL);
-    sigaction(SIGQUIT, &sigact, NULL);
-    sigaction(SIGPIPE, &sigact, NULL);
-
-    mosq_init();
 
     while(!do_exit)    {
         if (millis () < timer)  {
@@ -784,14 +888,281 @@ int main (int argc, char *argv[]) {
 
         timer = millis () + LCD_UPDATE_PERIOD;
         get_weather_info(weather);
-        publish_weathers(old_weather, weather, "home/%s/weather/%s");
+        //publish_weathers(old_weather, weather, "home/%s/weather/%s");
+	publish_sensors(weather,"tele/%s/SENSOR");
+	publish_state("tele/%s/STATE");
         lcd_update();
     }
 
-    mosq_destroy();
-
-    exit(0);
+    pthread_exit(NULL);
 }
 
+//------------------------------------------------------------------------------------------------------------
+//
+// Usage:
+//
+//------------------------------------------------------------------------------------------------------------
+static void usage()
+{
+}
+
+//------------------------------------------------------------------------------------------------------------
+//
+// Start Program:
+//
+//------------------------------------------------------------------------------------------------------------
+
+int
+main (int argc, char *const *argv) {
+    int flags;
+    int daemonize = true;
+    int debug = 0;
+    char * command = NULL;
+    pid_t pid;
+    pthread_t main_th = 0;
+
+    int    fd, sel_res;
+
+    daemon_pid_file_ident = daemon_log_ident = application;
+
+    tzset();
+
+    if ((progname = strrchr(argv[0], '/')) == NULL)
+        progname = argv[0];
+    else
+        ++progname;
+
+    if (strrchr(argv[0], '/') == NULL)
+        pathname = xstrdup(CDIR);
+    else {
+        pathname = xmalloc(strlen(argv[0]) + 1);
+        strncpy(pathname, argv[0], (strrchr(argv[0], '/') - argv[0]) + 1);
+    }
+
+    if (chdir(pathname) < 0) {
+        daemon_log(LOG_ERR, "chdir error: %s", strerror(errno));
+    }
+
+    FREE(pathname);
+
+    pathname = get_current_dir_name();
+
+    hostname = calloc(1,HOSTNAME_SIZE);
+    gethostname(hostname, HOSTNAME_SIZE-1);
+
+    daemon_log_upto(LOG_INFO);
+    daemon_log(LOG_INFO, "%s %s", pathname, progname);
+
+    while ((flags = getopt(argc, argv, "i:fdk:")) != -1) {
+
+        switch (flags) {
+        case 'i': {
+            daemon_pid_file_ident = daemon_log_ident = xstrdup(optarg);
+            break;
+        }
+        case 'f' : {
+            daemonize = false;
+            break;
+        }
+        case 'd': {
+            debug++;
+            daemon_log_upto(LOG_DEBUG);
+            break;
+        }
+        case 'k': {
+            command = xstrdup(optarg);
+            break;
+        }
+        default: {
+            usage();
+            break;
+        }
+
+        }
+    }
+
+    if (debug) {
+        daemon_log(LOG_DEBUG,    "**************************");
+        daemon_log(LOG_DEBUG,    "* WARNING !!! Debug mode *");
+        daemon_log(LOG_DEBUG,    "**************************");
+    }
+
+    daemon_log(LOG_INFO, "%s ver %s [%s %s %s] started", application,  git_version, git_branch, __DATE__, __TIME__);
+    daemon_log(LOG_INFO, "***************************************************************************");
+    daemon_log(LOG_INFO, "pid file: %s", daemon_pid_file_proc());
+    if (command) {
+        int r = CMD_NOT_FOUND;
+        for (unsigned int i = 0; i < (sizeof(daemon_commands) / sizeof(daemon_commands[0])); i++) {
+            if ((strcasecmp(command, daemon_commands[i].command_name) == 0) && (daemon_commands[i].command_callback)) {
+                if ((r = daemon_commands[i].command_callback(pathname)) != 0) exit(abs(r - 10));
+            }
+        }
+        if (r == CMD_NOT_FOUND) {
+            daemon_log(LOG_ERR, "command \"%s\" not found.", command);
+            usage();
+        }
+    }
+    FREE(command);
+
+    /* initialize PRNG */
+    srand ((unsigned int) time (NULL));
+
+    if ((pid = daemon_pid_file_is_running()) >= 0) {
+        daemon_log(LOG_ERR, "Daemon already running on PID file %u", pid);
+        return 1;
+    }
+
+    daemon_log(LOG_INFO, "Make a daemon");
+
+    daemon_retval_init();
+    if ((daemonize) && ((pid = daemon_fork()) < 0)) {
+        return 1;
+    } else if ((pid) && (daemonize)) {
+        int ret;
+        if ((ret = daemon_retval_wait(20)) < 0) {
+            daemon_log(LOG_ERR, "Could not recieve return value from daemon process.");
+            return 255;
+        }
+        if (ret == 0) {
+            daemon_log(LOG_INFO, "Daemon started.");
+        } else {
+            daemon_log(LOG_ERR, "Daemon dont started, returned %i as return value.", ret);
+        }
+        return ret;
+    } else {
+
+        if (daemon_pid_file_create() < 0) {
+            daemon_log(LOG_ERR, "Could not create PID file (%s).", strerror(errno));
+            daemon_retval_send(1);
+            goto finish;
+        }
+
+        if (daemon_signal_init(/*SIGCHLD,*/SIGINT, SIGTERM, SIGQUIT, SIGHUP, SIGUSR1, SIGUSR2, SIGHUP, /*SIGSEGV,*/ 0) < 0) {
+            daemon_log(LOG_ERR, "Could not register signal handlers (%s).", strerror(errno));
+            daemon_retval_send(1);
+            goto finish;
+        }
+
+        daemon_retval_send(0);
+        daemon_log(LOG_INFO, "%s ver %s [%s %s %s] started", application,  git_version, git_branch, __DATE__, __TIME__);
+
+        struct rlimit core_lim;
+
+        if (getrlimit(RLIMIT_CORE, &core_lim) < 0) {
+            daemon_log(LOG_ERR, "getrlimit RLIMIT_CORE error:%s", strerror(errno));
+        } else {
+            daemon_log(LOG_INFO, "core limit is cur:%2ld max:%2ld", core_lim.rlim_cur, core_lim.rlim_max );
+            core_lim.rlim_cur = -1;
+            core_lim.rlim_max = -1;
+            if (setrlimit(RLIMIT_CORE, &core_lim) < 0) {
+                daemon_log(LOG_ERR, "setrlimit RLIMIT_CORE error:%s", strerror(errno));
+            } else {
+                daemon_log(LOG_INFO, "core limit set cur:%2ld max:%2ld", core_lim.rlim_cur, core_lim.rlim_max );
+            }
+        }
+        main_pid = syscall(SYS_gettid);
+
+	wiringPiSetup ();
+
+	if (system_init() < 0) {
+	    daemon_log(LOG_ERR, "%s: System Init failed", __func__);
+	    goto finish;
+	}
+
+	mosq_init();
+	sleep(1);
+
+	pthread_create( &main_th, NULL, main_loop, NULL);
+// main 
+
+        fd_set fds;
+        FD_ZERO(&fds);
+        fd = daemon_signal_fd();
+        FD_SET(fd,  &fds);
+
+        while (!do_exit) {
+            struct timeval tv;
+            tv.tv_sec  = 0;
+            tv.tv_usec = 100000;
+            fd_set fds2 = fds;
+            if ((sel_res = select(FD_SETSIZE, &fds2, 0, 0, &tv)) < 0) {
+
+                if (errno == EINTR)
+                    continue;
+
+                daemon_log(LOG_ERR, "select() error:%d %s", errno,  strerror(errno));
+                break;
+            }
+            if (FD_ISSET(fd, &fds2)) {
+                int sig;
+
+                if ((sig = daemon_signal_next()) <= 0) {
+                    daemon_log(LOG_ERR, "daemon_signal_next() failed.");
+                    break;
+                }
+
+                switch (sig) {
+                case SIGCHLD: {
+                    int ret = 0;
+                    daemon_log(LOG_INFO, "SIG_CHLD");
+                    wait(&ret);
+                    daemon_log(LOG_INFO, "RET=%d", ret);
+                }
+                break;
+
+                case SIGINT:
+                case SIGQUIT:
+                case SIGTERM:
+                    daemon_log(LOG_WARNING, "Got SIGINT, SIGQUIT or SIGTERM");
+                    do_exit = true;
+                    break;
+
+                case SIGUSR1: {
+                    daemon_log(LOG_WARNING, "Got SIGUSR1");
+                    daemon_log(LOG_WARNING, "Enter in debug mode, to stop send me USR2 signal");
+                    daemon_log_upto(LOG_DEBUG);
+                    break;
+                }
+                case SIGUSR2: {
+                    daemon_log(LOG_WARNING, "Got SIGUSR2");
+                    daemon_log(LOG_WARNING, "Leave debug mode");
+                    daemon_log_upto(LOG_INFO);
+                    break;
+                }
+                case SIGHUP:
+                    daemon_log(LOG_WARNING, "Got SIGHUP");
+                    break;
+
+                case SIGSEGV:
+                    daemon_log(LOG_ERR, "Seg fault. Core dumped to /tmp/core.");
+                    if (chdir("/tmp") < 0) {
+                        daemon_log(LOG_ERR, "Chdir to /tmp error: %s", strerror(errno));
+                    }
+                    signal(sig, SIG_DFL);
+                    kill(getpid(), sig);
+                    break;
+
+                default:
+                    daemon_log(LOG_ERR, "UNKNOWN SIGNAL:%s", strsignal(sig));
+                    break;
+
+                }
+            }
+        }
+
+    }
+
+finish:
+    daemon_log(LOG_INFO, "Exiting...");
+    mosq_destroy();
+    pthread_join(main_th, NULL);
+    FREE(hostname);
+    FREE(pathname);
+    daemon_retval_send(-1);
+    daemon_signal_done();
+    daemon_pid_file_remove();
+    daemon_log(LOG_INFO, "Exit");
+    exit(0);
+}
 //------------------------------------------------------------------------------------------------------------
 //------------------------------------------------------------------------------------------------------------
