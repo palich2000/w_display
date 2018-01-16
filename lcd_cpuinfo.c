@@ -64,6 +64,7 @@ static int do_exit = 0;
 #define LCD_UPDATE_PERIOD   1000 // 1 sec
 #define LCD_AUTO_SW_TIMEOUT 5000 // 5 sec
 #define STATE_PUBLISH_INTERVAL 30000 // 30 sec
+#define SENSORS_PUBLISH_INTERVAL 30000 // 30 sec
 
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
@@ -550,10 +551,40 @@ static void publish_weathers(weather_t * old_weather[], weather_t * cur_weather[
 */
 }
 
+
+static char * add_sensor(weather_t * weather, buffer, buffer_len)
+{
+    char buffer[255];
+    snprintf(buffer,buffer_len,
+    return(strdup(buffer
+}
+
 static void publish_sensors(weather_t * cur_weather[],char * topic_template)
 {
+    static int timer_publish_state = 0;
+    if (timer_publish_state >  millis()) return;
+    else {
+	timer_publish_state = millis () + SENSORS_PUBLISH_INTERVAL;
+    }
+
     char topic[128] = {};
     snprintf(topic,sizeof(topic)-1,topic_template,hostname);
+
+    time_t timer;
+    char tm_buffer[26]={};
+    char buf[255] = {};
+    struct tm* tm_info;
+    struct sysinfo info;
+    int res;
+
+    time(&timer);
+    tm_info = localtime(&timer);
+    strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
+
+    daemon_log(LOG_INFO,"%s %s", topic, buf);
+    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+        daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
+    }
 }
 
 static void publish_state(char * topic_template)
@@ -954,7 +985,7 @@ main (int argc, char *const *argv) {
     daemon_log_upto(LOG_INFO);
     daemon_log(LOG_INFO, "%s %s", pathname, progname);
 
-    while ((flags = getopt(argc, argv, "i:fdk:")) != -1) {
+    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:")) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -972,6 +1003,22 @@ main (int argc, char *const *argv) {
         }
         case 'k': {
             command = xstrdup(optarg);
+            break;
+        }
+        case 'p': {
+            mqtt_port = atoi(optarg);
+            break;
+        }
+        case 'u': {
+            mqtt_username = xstrdup(optarg);
+            break;
+        }
+        case 'P': {
+            mqtt_password = xstrdup(optarg);
+            break;
+        }
+        case 'h': {
+            mqtt_host = xstrdup(optarg);
             break;
         }
         default: {
