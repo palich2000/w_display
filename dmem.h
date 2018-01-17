@@ -16,7 +16,7 @@ char * xstrdup(const char *s);
         } \
         break; \
     }  while(0) \
- 
+
 #endif // FREE
 
 #endif // foodmemh

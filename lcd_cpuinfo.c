@@ -31,7 +31,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 
- 
+
 #include <math.h>
 #include "dpid.h"
 #include "dmem.h"
@@ -40,6 +40,7 @@
 #include "dsignal.h"
 #include "version.h"
 #include "nxjson.h"
+#include "array.h"
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -410,84 +411,96 @@ static char * get_last_line_from_file(char * filename) {
 }
 
 
+//{"time" : "2018-01-17 15:56:37", "brand" : "OS", "model" : "THGR122N", "id" : 88, "channel" : 1, "battery" : "OK", "temperature_C" : -2.000, "humidity" : 77}
+
+enum sensor_type_t {s_numeric, s_string};
+typedef struct _sensor_t {
+    char * name;
+    double value_d;
+    char * value_s;
+    enum sensor_type_t sensor_type;
+} sensor_t;
+
+sensor_t * sensor_new(const char * name, const double value_d, const char * value_s) {
+    sensor_t * ret = calloc(1, sizeof(*ret));
+    ret->name = strdup(name);
+    if (!isnan(value_d)) {
+        ret->sensor_type = s_numeric;
+        ret->value_d = value_d;
+    } else {
+        ret->sensor_type = s_string;
+        ret->value_s = strdup(value_s);
+    }
+    return ret;
+}
+
+void sensor_free(sensor_t ** sensor) {
+    FREE((*sensor)->name);
+    FREE((*sensor)->value_s);
+    FREE(*sensor);
+}
+
 #define FD_EXT_SENSOR_FD  "/tmp/weather/rtl_433.log"
 #define FD_INT_SENSOR_FD  "/tmp/weather/weather_board.log"
 
 typedef struct _weather_t {
-    char   location[20];
-    double temperature_C;
-    double pressure;
-    double humidity;
-    double uv_index;
-    double visible_light;
-    double ir_light;
-    bool rain;
-    double rain_mm;
-    double wind;
-    double wind_dir;
+    char* location;
+    array_t * sensors;
 } weather_t;
 
-void weather_init(weather_t * weather) {
-    if (!weather) return;
-    bzero(weather, sizeof(weather));
-    strcpy(weather->location, "UNK");
-    weather->temperature_C = NAN;
-    weather->pressure = NAN;
-    weather->humidity = NAN;
-    weather->uv_index = NAN;
-    weather->visible_light = NAN;
-    weather->ir_light = NAN;
-    weather->rain_mm = NAN;
-    weather->wind = NAN;
-    weather->wind_dir = NAN;
-    weather->rain = 3;
+weather_t * weather_new(const char * location) {
+    weather_t * ret = calloc(1, sizeof(*ret));
+    ret->location = strdup(location);
+    ret->sensors = array_create();
+    return ret;
 }
 
-static void get_weather_from_json(char * location, weather_t * weather, char * txt_json) {
-    if ((!txt_json) || (!*txt_json) || (!weather)) return;
-    if ((location) && (*location)) {
-        strcpy(weather->location, location);
+void weather_free(weather_t ** weather) {
+    if (!weather || !*weather) return;
+    FREE((*weather)->location);
+    array_destroy(&(*weather)->sensors, NULL, (freep_func_t)sensor_free);
+    FREE(*weather);
+}
+
+void weather_cloar(weather_t * weather) {
+    if (weather) {
+        array_clean(weather->sensors, NULL, (freep_func_t)sensor_free);
     }
+}
+
+/*
+typedef struct nx_json {
+    nx_json_type type;       // type of json node, see above
+    const char* key;         // key of the property; for object's children only
+    const char* text_value;  // text value of STRING node
+    long long int_value;     // the value of INTEGER or BOOL node
+    double dbl_value;        // the value of DOUBLE node
+    int length;              // number of children of OBJECT or ARRAY
+    struct nx_json* child;   // points to first child
+    struct nx_json* next;    // points to next child
+    struct nx_json* last_child;
+} nx_json;
+*/
+
+static void json_print(int level, const nx_json* json) {
+    daemon_log(LOG_INFO, "%*s%s", level, "", json->key);
+    if (json->child) {
+        json_print(level + 1, json->child);
+    }
+    if (json->next) {
+        json_print(level, json->next);
+    }
+}
+
+static void get_weather_from_json(weather_t * weather, char * txt_json) {
+    if ((!txt_json) || (!*txt_json) || (!weather)) return;
+
     const nx_json* json = nx_json_parse_utf8(txt_json);
 
     if (json) {
-        const nx_json * json1;
-        json1  = nx_json_get(json, "temperature_C");
-        if (json1) {
-            weather->temperature_C = json1->dbl_value;
-        }
-
-        json1  = nx_json_get(json, "humidity");
-        if (json1) {
-            weather->humidity = json1->dbl_value;
-        }
-
-        json1  = nx_json_get(json, "pressure");
-        if (json1) {
-            weather->pressure = json1->dbl_value;
-        }
-
-        json1  = nx_json_get(json, "uv_index");
-        if (json1) {
-            weather->uv_index = json1->dbl_value;
-        }
-
-        json1  = nx_json_get(json, "visible");
-        if (json1) {
-            weather->visible_light = json1->dbl_value;
-        }
-        json1  = nx_json_get(json, "ir");
-        if (json1) {
-            weather->ir_light = json1->dbl_value;
-        }
+        json_print(0, json);
         nx_json_free(json);
     }
-}
-
-static bool is_need_publish(double curr, double old) {
-    if (isnan(curr)) return(false);
-    if (!isnan(curr) && isnan(old)) return(true);
-    return roundf(curr * 10.) / 10. != roundf(old * 10.) / 10.;
 }
 
 //"home/%s/weather/%s"
@@ -501,77 +514,20 @@ static void publist_weather_topic(char * template, char * location, char * name,
 #define WEATHER_INT 0
 #define WEATHER_EXT 1
 #define WEATHER_COUNT 2
-weather_t _weather_int = {};
-weather_t _weather_ext = {};
-weather_t * weather[WEATHER_COUNT] = {&_weather_int, &_weather_ext};
+weather_t * weather[WEATHER_COUNT] = {};
 
-weather_t _old_weather_int = {};
-weather_t _old_weather_ext = {};
-weather_t * old_weather[WEATHER_COUNT] = {&_old_weather_int, &_old_weather_ext};
-
-static void publish_weather(weather_t * old_weather, weather_t * cur_weather, char * topic_template) {
-    if ((!old_weather) || (!cur_weather)) return;
-
-    if (!strlen(old_weather->location)) {
-        weather_init(old_weather);
-    }
-
-    if (is_need_publish(cur_weather->temperature_C, old_weather->temperature_C)) {
-        publist_weather_topic(topic_template, cur_weather->location, "temperature_C", cur_weather->temperature_C);
-    }
-
-    if (is_need_publish(cur_weather->humidity, old_weather->humidity)) {
-        publist_weather_topic(topic_template, cur_weather->location, "humidity", cur_weather->humidity);
-    }
-
-    if (is_need_publish(cur_weather->pressure, old_weather->pressure)) {
-        publist_weather_topic(topic_template, cur_weather->location, "pressure", cur_weather->pressure);
-    }
-
-    if (is_need_publish(cur_weather->visible_light, old_weather->visible_light)) {
-        publist_weather_topic(topic_template, cur_weather->location, "visible_light", cur_weather->visible_light);
-    }
-
-    if (is_need_publish(cur_weather->ir_light, old_weather->ir_light)) {
-        publist_weather_topic(topic_template, cur_weather->location, "ir_light", cur_weather->ir_light);
-    }
-
-    if (is_need_publish(cur_weather->uv_index, old_weather->uv_index)) {
-        publist_weather_topic(topic_template, cur_weather->location, "uv_index", cur_weather->uv_index);
-    }
-
-    *old_weather = *cur_weather;
-}
-
-static void publish_weathers(weather_t * old_weather[], weather_t * cur_weather[], char * topic_template) {
-/*
-    for (int i = 0; i < WEATHER_COUNT; i++) {
-        publish_weather(old_weather[i], cur_weather[i], topic_template);
-    }
-*/
-}
-
-
-static char * add_sensor(weather_t * weather, buffer, buffer_len)
-{
-    char buffer[255];
-    snprintf(buffer,buffer_len,
-    return(strdup(buffer
-}
-
-static void publish_sensors(weather_t * cur_weather[],char * topic_template)
-{
+static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
     static int timer_publish_state = 0;
     if (timer_publish_state >  millis()) return;
     else {
-	timer_publish_state = millis () + SENSORS_PUBLISH_INTERVAL;
+        timer_publish_state = millis () + SENSORS_PUBLISH_INTERVAL;
     }
 
     char topic[128] = {};
-    snprintf(topic,sizeof(topic)-1,topic_template,hostname);
+    snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
 
     time_t timer;
-    char tm_buffer[26]={};
+    char tm_buffer[26] = {};
     char buf[255] = {};
     struct tm* tm_info;
     struct sysinfo info;
@@ -581,24 +537,23 @@ static void publish_sensors(weather_t * cur_weather[],char * topic_template)
     tm_info = localtime(&timer);
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
 
-    daemon_log(LOG_INFO,"%s %s", topic, buf);
+    daemon_log(LOG_INFO, "%s %s", topic, buf);
     if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
 
-static void publish_state(char * topic_template)
-{
+static void publish_state(char * topic_template) {
     // "Time":"2017-03-04T13:37:24" "Uptime":  "Cputemp":
     static int timer_publish_state = 0;
 
     if (timer_publish_state >  millis()) return;
     else {
-	timer_publish_state = millis () + STATE_PUBLISH_INTERVAL;
+        timer_publish_state = millis () + STATE_PUBLISH_INTERVAL;
     }
 
     time_t timer;
-    char tm_buffer[26]={};
+    char tm_buffer[26] = {};
     char buf[255] = {};
     char topic[128] = {};
     struct tm* tm_info;
@@ -610,25 +565,25 @@ static void publish_state(char * topic_template)
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
 
     if (!sysinfo(&info)) {
-	int fd;
-	char tmp_buf[20];
-	memset(tmp_buf, ' ', sizeof(tmp_buf));
-	if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
-    	    daemon_log(LOG_ERR, "%s : file open error!", __func__);
-	} else    {
-    	    read(fd, buf, sizeof(tmp_buf));
-    	    close(fd);
-	}
+        int fd;
+        char tmp_buf[20];
+        memset(tmp_buf, ' ', sizeof(tmp_buf));
+        if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
+            daemon_log(LOG_ERR, "%s : file open error!", __func__);
+        } else    {
+            read(fd, buf, sizeof(tmp_buf));
+            close(fd);
+        }
         int temp_C = atoi(buf) / 1000;
- 
 
-	snprintf(buf,sizeof(buf)-1,"{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
-		tm_buffer, info.uptime/3600, info.loads[0]/65536.0, temp_C);
-	snprintf(topic, sizeof(topic)-1, topic_template, hostname);
-	daemon_log(LOG_INFO,"%s %s", topic, buf);
-	if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
-    	    daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
-	}
+
+        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
+                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+        snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
+        daemon_log(LOG_INFO, "%s %s", topic, buf);
+        if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+            daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
+        }
     }
 }
 
@@ -637,32 +592,34 @@ static void publish_state(char * topic_template)
 static void get_weather_info(weather_t * weather[]) {
 
     char * txt_json;
-    weather_init(weather[WEATHER_EXT]);
+
     txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
     if (txt_json) {
-	get_weather_from_json("EX", weather[WEATHER_EXT], txt_json);
-	free(txt_json);
+        get_weather_from_json(weather[WEATHER_EXT], txt_json);
+        free(txt_json);
     }
 
-    weather_init(weather[WEATHER_INT]);
+
     txt_json = get_last_line_from_file(FD_INT_SENSOR_FD);
     if (txt_json) {
-	get_weather_from_json("IN", weather[WEATHER_INT], txt_json);
-	free(txt_json);
+        get_weather_from_json(weather[WEATHER_INT], txt_json);
+        free(txt_json);
     }
 
 }
 
 static void display_weather_info(weather_t * weather[]) {
-    char    buf[LCD_COL+1];
-    int     n;
-    memset(buf, ' ', sizeof(buf));
-    n = snprintf(buf,sizeof(buf)-1,"%2s%5.1f %2.0f%%",
-                weather[WEATHER_INT]->location, weather[WEATHER_INT]->temperature_C, roundf(weather[WEATHER_INT]->humidity));
-    strncpy((char*)&lcdFb[0][0], buf, n);
-    n = snprintf(buf,sizeof(buf)-1, "%2s%5.1f %2.0f%% %3.0f",
-                weather[WEATHER_EXT]->location, weather[WEATHER_EXT]->temperature_C, roundf(weather[WEATHER_EXT]->humidity), roundf(0.750062 * weather[WEATHER_INT]->pressure));
-    strncpy((char*)&lcdFb[1][0], buf, n);
+    /*
+        char    buf[LCD_COL + 1];
+        int     n;
+        memset(buf, ' ', sizeof(buf));
+        n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%%",
+                     weather[WEATHER_INT]->location, weather[WEATHER_INT]->temperature_C, roundf(weather[WEATHER_INT]->humidity));
+        strncpy((char*)&lcdFb[0][0], buf, n);
+        n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%% %3.0f",
+                     weather[WEATHER_EXT]->location, weather[WEATHER_EXT]->temperature_C, roundf(weather[WEATHER_EXT]->humidity), roundf(0.750062 * weather[WEATHER_INT]->pressure));
+        strncpy((char*)&lcdFb[1][0], buf, n);
+    */
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -803,8 +760,8 @@ void on_message(struct mosquitto *m, void *udata,
         return;
     }
     daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
-            msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
-            (char*)msg->payload);
+               msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
+               (char*)msg->payload);
     //t_client_info *info = (t_client_info *)udata;
 }
 
@@ -863,9 +820,9 @@ void mosq_init() {
         if (res) {
             daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
         }
-	pthread_create(&mosq_th, NULL, mosq_thread_loop, &client_info);
+        pthread_create(&mosq_th, NULL, mosq_thread_loop, &client_info);
     }
-    
+
 }
 
 static
@@ -902,6 +859,12 @@ void * main_loop (void * p) {
     int timer = 0;
     int timer_auto_sw = 0;
     daemon_log(LOG_INFO, "%s", __FUNCTION__);
+
+
+    weather[WEATHER_EXT] = weather_new("EX");
+    weather[WEATHER_INT] = weather_new("IN");
+
+
     while(!do_exit)    {
         if (millis () < timer)  {
             usleep(100000);    // 100ms sleep state
@@ -920,11 +883,12 @@ void * main_loop (void * p) {
 
         timer = millis () + LCD_UPDATE_PERIOD;
         get_weather_info(weather);
-        //publish_weathers(old_weather, weather, "home/%s/weather/%s");
-	publish_sensors(weather,"tele/%s/SENSOR");
-	publish_state("tele/%s/STATE");
+        publish_sensors(weather, "tele/%s/SENSOR");
+        publish_state("tele/%s/STATE");
         lcd_update();
     }
+    weather_free(&weather[WEATHER_EXT]);
+    weather_free(&weather[WEATHER_INT]);
     daemon_log(LOG_INFO, "%s finished", __FUNCTION__);
     pthread_exit(NULL);
 }
@@ -934,8 +898,7 @@ void * main_loop (void * p) {
 // Usage:
 //
 //------------------------------------------------------------------------------------------------------------
-static void usage()
-{
+static void usage() {
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -979,8 +942,8 @@ main (int argc, char *const *argv) {
 
     pathname = get_current_dir_name();
 
-    hostname = calloc(1,HOSTNAME_SIZE);
-    gethostname(hostname, HOSTNAME_SIZE-1);
+    hostname = calloc(1, HOSTNAME_SIZE);
+    gethostname(hostname, HOSTNAME_SIZE - 1);
 
     daemon_log_upto(LOG_INFO);
     daemon_log(LOG_INFO, "%s %s", pathname, progname);
@@ -1110,18 +1073,18 @@ main (int argc, char *const *argv) {
         }
         main_pid = syscall(SYS_gettid);
 
-	wiringPiSetup ();
+        wiringPiSetup ();
 
-	if (system_init() < 0) {
-	    daemon_log(LOG_ERR, "%s: System Init failed", __func__);
-	    goto finish;
-	}
+        if (system_init() < 0) {
+            daemon_log(LOG_ERR, "%s: System Init failed", __func__);
+            goto finish;
+        }
 
-	mosq_init();
-	sleep(1);
+        mosq_init();
+        sleep(1);
 
-	pthread_create( &main_th, NULL, main_loop, NULL);
-// main 
+        pthread_create( &main_th, NULL, main_loop, NULL);
+// main
 
         fd_set fds;
         FD_ZERO(&fds);
