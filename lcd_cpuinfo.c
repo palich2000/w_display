@@ -64,8 +64,8 @@ static int do_exit = 0;
 #define LCD_BUS             4   // Interface 4 Bit mode
 #define LCD_UPDATE_PERIOD   1000 // 1 sec
 #define LCD_AUTO_SW_TIMEOUT 5000 // 5 sec
-#define STATE_PUBLISH_INTERVAL 30000 // 30 sec
-#define SENSORS_PUBLISH_INTERVAL 30000 // 30 sec
+#define STATE_PUBLISH_INTERVAL 60000 // 60 sec
+#define SENSORS_PUBLISH_INTERVAL 60000 // 60 sec
 
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
@@ -430,6 +430,7 @@ sensor_t * sensor_new(const char * name, const double value_d, const char * valu
     } else {
         ret->sensor_type = s_string;
         ret->value_s = strdup(value_s);
+        ret->value_d = NAN;
     }
     return ret;
 }
@@ -462,27 +463,31 @@ void weather_free(weather_t ** weather) {
     FREE(*weather);
 }
 
-void weather_cloar(weather_t * weather) {
+void weather_clear(weather_t * weather) {
     if (weather) {
         array_clean(weather->sensors, NULL, (freep_func_t)sensor_free);
     }
 }
 
-/*
-typedef struct nx_json {
-    nx_json_type type;       // type of json node, see above
-    const char* key;         // key of the property; for object's children only
-    const char* text_value;  // text value of STRING node
-    long long int_value;     // the value of INTEGER or BOOL node
-    double dbl_value;        // the value of DOUBLE node
-    int length;              // number of children of OBJECT or ARRAY
-    struct nx_json* child;   // points to first child
-    struct nx_json* next;    // points to next child
-    struct nx_json* last_child;
-} nx_json;
-*/
+sensor_t * sensor_by_name(weather_t * weather, const char * sensor_name) {
+    if ((weather) && (weather->sensors) && (sensor_name) && (strlen(sensor_name) > 0)) {
+        array_for_each(weather->sensors, i) {
+            sensor_t * sensor = array_getitem(weather->sensors , i);
+            if ((sensor) && (sensor->name) && (strcmp(sensor_name, sensor->name) == 0)) {
+                return sensor;
+            }
+        }
+    }
+    return(NULL);
+}
 
-static void json_print(int level, const nx_json* json) {
+double sensor_value_d_by_name(weather_t * weather, const char * sensor_name) {
+    sensor_t * sensor = sensor_by_name(weather, sensor_name);
+    if (sensor) return sensor->value_d;
+    return NAN;
+}
+
+__attribute__ ((unused)) static void json_print(int level, const nx_json* json) {
     daemon_log(LOG_INFO, "%*s%s", level, "", json->key);
     if (json->child) {
         json_print(level + 1, json->child);
@@ -492,23 +497,81 @@ static void json_print(int level, const nx_json* json) {
     }
 }
 
+static void add_sensor_value(weather_t * weather, const nx_json* json) {
+    if ((!json) || (!json->key) || (!strlen(json->key))) {
+        return;
+    }
+    sensor_t * sensor = NULL;
+    switch (json->type) {
+    case NX_JSON_STRING:
+        sensor = sensor_new(json->key, NAN, json->text_value);
+        break;
+    case NX_JSON_DOUBLE:
+        sensor = sensor_new(json->key, json->dbl_value, NULL);
+        break;
+    case NX_JSON_INTEGER:
+    case NX_JSON_BOOL:
+        sensor = sensor_new(json->key, json->int_value, NULL);
+        break;
+    default:
+        break;
+    }
+    if ((sensor) && (weather) && (weather->sensors)) {
+        array_append(weather->sensors, sensor);
+    }
+}
+
+static void json_recursive_add_sensors(weather_t * weather, const nx_json* json) {
+
+    //daemon_log(LOG_INFO, "%*s%s", level, "", json->key);
+    add_sensor_value(weather, json);
+    if (json->child) {
+        json_recursive_add_sensors(weather, json->child);
+    }
+    if (json->next) {
+        json_recursive_add_sensors(weather, json->next);
+    }
+}
+
 static void get_weather_from_json(weather_t * weather, char * txt_json) {
     if ((!txt_json) || (!*txt_json) || (!weather)) return;
 
     const nx_json* json = nx_json_parse_utf8(txt_json);
 
     if (json) {
-        json_print(0, json);
+        weather_clear(weather);
+        json_recursive_add_sensors(weather, json);
         nx_json_free(json);
     }
 }
 
 //"home/%s/weather/%s"
 
-static void publist_weather_topic(char * template, char * location, char * name, double value) {
+__attribute__ ((unused)) static void publist_weather_topic(char * template, char * location, char * name, double value) {
     char topic[256];
     sprintf(topic, template, location, name);
     publish_double(topic, value);
+}
+
+static char * sensor_print(char * buffer, const sensor_t * sensor) {
+    char * eb_buf = buffer + strlen(buffer);
+    switch (sensor->sensor_type) {
+    case s_numeric:
+        sprintf(eb_buf, "\"%s\": %.4f", sensor->name, sensor->value_d);
+        int l = strlen(eb_buf);
+        char * tmp = eb_buf + l - 1;
+        while ((*tmp == '0') && (tmp > eb_buf + 1)) {
+            *tmp = 0;
+            tmp--;
+        }
+        if (*tmp == '.')
+            *tmp = 0;
+        break;
+    case s_string:
+        sprintf(eb_buf, "\"%s\": \"%s\"", sensor->name, sensor->value_s);
+        break;
+    }
+    return buffer;
 }
 
 #define WEATHER_INT 0
@@ -528,20 +591,38 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
 
     time_t timer;
     char tm_buffer[26] = {};
-    char buf[255] = {};
+    char buf[1024] = {};
     struct tm* tm_info;
-    struct sysinfo info;
+    //struct sysinfo info;
     int res;
 
     time(&timer);
     tm_info = localtime(&timer);
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
 
+    strcat(buf, "{\"Time\":\"");
+    strcat(buf, tm_buffer);
+    strcat(buf, "\",");
+
+    for (int w = 0; w < WEATHER_COUNT; w++) {
+        strcat(strcat(strcat(buf, "\""), cur_weather[w]->location), "\":{");
+        array_for_each(cur_weather[w]->sensors, i) {
+            sensor_t * sensor = array_getitem(cur_weather[w]->sensors, i);
+            sensor_print(buf, sensor);
+            strcat(buf, ",");
+        }
+        buf[strlen(buf) - 1] = 0;
+        strcat(buf, "},");
+    }
+    buf[strlen(buf) - 1] = 0;
+    strcat(buf, "}");
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
+
+//{"Time":"2018-01-18T13:32:45", "MGS":{"NH3":0.15, "CO":0.58, "NO2":0.95, "C3H8":60.92, "C4H10":59.61, "CH4":0.36, "H2":0.03,
 
 static void publish_state(char * topic_template) {
     // "Time":"2017-03-04T13:37:24" "Uptime":  "Cputemp":
@@ -609,17 +690,20 @@ static void get_weather_info(weather_t * weather[]) {
 }
 
 static void display_weather_info(weather_t * weather[]) {
-    /*
-        char    buf[LCD_COL + 1];
-        int     n;
-        memset(buf, ' ', sizeof(buf));
-        n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%%",
-                     weather[WEATHER_INT]->location, weather[WEATHER_INT]->temperature_C, roundf(weather[WEATHER_INT]->humidity));
-        strncpy((char*)&lcdFb[0][0], buf, n);
-        n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%% %3.0f",
-                     weather[WEATHER_EXT]->location, weather[WEATHER_EXT]->temperature_C, roundf(weather[WEATHER_EXT]->humidity), roundf(0.750062 * weather[WEATHER_INT]->pressure));
-        strncpy((char*)&lcdFb[1][0], buf, n);
-    */
+    char    buf[LCD_COL + 1];
+    int     n;
+    memset(buf, ' ', sizeof(buf));
+    n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%%",
+                 weather[WEATHER_INT]->location,
+                 sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
+                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
+    strncpy((char*)&lcdFb[0][0], buf, n);
+    n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%% %3.0f",
+                 weather[WEATHER_EXT]->location,
+                 sensor_value_d_by_name(weather[WEATHER_EXT], "temperature_C"),
+                 roundf(sensor_value_d_by_name(weather[WEATHER_EXT], "humidity")),
+                 roundf(0.750062 * sensor_value_d_by_name(weather[WEATHER_INT], "pressure")));
+    strncpy((char*)&lcdFb[1][0], buf, n);
 }
 
 //------------------------------------------------------------------------------------------------------------

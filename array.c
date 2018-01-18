@@ -151,7 +151,7 @@ void array_pop(array_t * a) {
     pthread_mutex_unlock(&a->mtx);
 }
 
-static void array_del_no_lock(array_t * a, void *obj) {
+__attribute__ ((unused)) static void array_del_no_lock(array_t * a, void *obj) {
     if (a == NULL)
         return;
     int pos = 0;

@@ -34,6 +34,6 @@ extern void array_unlock(array_t * a);
 extern void array_qsort( array_t * a, cfunc_t cfunc);
 
 #define array_for_each(array, tmp_int) \
-	for (tmp_int=0; tmp_int<array_getcount(array); tmp_int++)
+	for (int tmp_int=0; tmp_int<array_getcount(array); tmp_int++)
 
 #endif

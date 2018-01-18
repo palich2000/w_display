@@ -1,6 +1,6 @@
 CC = gcc
 
-CFLAGS = -g -std=c11 -MD -MP  -Wall -Wfatal-errors
+CFLAGS = -g -std=c11 -MD -MP  -Wall -Wfatal-errors -g
 
 OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o
 
