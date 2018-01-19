@@ -20,7 +20,7 @@ DEPS = $(SRCS:%.c=%.d)
 -include $(DEPS)
 
 clean:
-	rm -f *.o *.d lcd_cpuinfo
+	rm -f *.o *.d lcd_cpuinfo core
 
 install: lcd_cpuinfo
 	install -D -o root -g root ./lcd_cpuinfo /usr/local/bin

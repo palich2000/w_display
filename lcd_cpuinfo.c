@@ -30,7 +30,7 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
-
+#include <regex.h>
 
 #include <math.h>
 #include "dpid.h"
@@ -73,10 +73,10 @@ static int lcdHandle  = 0;
 
 //
 // DispMode
-// 0 = date & time, 1 = ethrenet ip addr, 2 = cpu temperature
-// 3 = freq governor. 4 = Weather, 5 = Little core frequency
+// 0 = date & time, 1 = weather, 2 = cpu temperature
+// 3 = freq governor. 4 = Little core frequency. 5 = mqqt last event
 //
-#define MAX_DISP_MODE 4
+#define MAX_DISP_MODE 5
 static int DispMode = 1;
 
 #define PORT_LCD_RS     7   // GPX1.2(#18)
@@ -203,12 +203,6 @@ DAEMON_COMMAND_T daemon_commands[] = {
 
 //------------------------------------------------------------------------------------------------------------
 //
-// DispMode
-// 0 = date & time, 1 = ethrenet ip addr, 2 = cpu temperature
-// 3 = freq governor. 4 = Big core frequency, 5 = Little core frequency
-//
-//------------------------------------------------------------------------------------------------------------
-//
 // Get little core freq(CPU4)
 //
 //------------------------------------------------------------------------------------------------------------
@@ -230,56 +224,6 @@ static void get_littlecore_freq(void) {
         strncpy((char*)&lcdFb[0][0], buf, n);
         n = sprintf(buf, "%d Mhz", freq / 1000);
         strncpy((char*)&lcdFb[1][4], buf, n);
-    }
-}
-
-//------------------------------------------------------------------------------------------------------------
-//
-// Get big core freq(CPU4)
-//
-//------------------------------------------------------------------------------------------------------------
-#define FD_BIGCORE_FREQ "/sys/devices/system/cpu/cpu4/cpufreq/scaling_cur_freq"
-
-__attribute__((unused)) static void get_bigcore_freq(void) {
-    int     n, fd, freq;
-    char    buf[LCD_COL];
-
-    memset(buf, ' ', sizeof(buf));
-
-    if((fd = open(FD_BIGCORE_FREQ, O_RDONLY)) < 0)   {
-        daemon_log(LOG_ERR, "%s : file open error!", __func__);
-    } else    {
-        n = read(fd, buf, sizeof(buf));
-        close(fd);
-        freq = atoi(buf);
-        n = sprintf(buf, "Big-Core Freq");
-        strncpy((char*)&lcdFb[0][0], buf, n);
-        n = sprintf(buf, "%d Mhz", freq / 1000);
-        strncpy((char*)&lcdFb[1][4], buf, n);
-    }
-}
-
-//------------------------------------------------------------------------------------------------------------
-//
-// Get system governor(CPU0)
-//
-//------------------------------------------------------------------------------------------------------------
-#define FD_SYSTEM_GOVERNOR  "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
-
-__attribute__((unused))static void get_system_governor(void) {
-    int     n, fd;
-    char    buf[LCD_COL];
-
-    memset(buf, ' ', sizeof(buf));
-
-    if((fd = open(FD_SYSTEM_GOVERNOR, O_RDONLY)) < 0)   {
-        daemon_log(LOG_ERR, "%s : file open error!", __func__);
-    } else    {
-        n = read(fd, buf, sizeof(buf));
-        close(fd);
-        strncpy((char*)&lcdFb[1][2], buf, n - 1);
-        n = sprintf(buf, "SYSTEM Governor");
-        strncpy((char*)&lcdFb[0][0], buf, n);
     }
 }
 
@@ -523,7 +467,6 @@ static void add_sensor_value(weather_t * weather, const nx_json* json) {
 
 static void json_recursive_add_sensors(weather_t * weather, const nx_json* json) {
 
-    //daemon_log(LOG_INFO, "%*s%s", level, "", json->key);
     add_sensor_value(weather, json);
     if (json->child) {
         json_recursive_add_sensors(weather, json->child);
@@ -614,7 +557,10 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
         buf[strlen(buf) - 1] = 0;
         strcat(buf, "},");
     }
-    buf[strlen(buf) - 1] = 0;
+    int l = strlen(buf);
+    if (l > 1) {
+        buf[strlen(buf) - 1] = 0;
+    }
     strcat(buf, "}");
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
@@ -622,10 +568,8 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
     }
 }
 
-//{"Time":"2018-01-18T13:32:45", "MGS":{"NH3":0.15, "CO":0.58, "NO2":0.95, "C3H8":60.92, "C4H10":59.61, "CH4":0.36, "H2":0.03,
-
 static void publish_state(char * topic_template) {
-    // "Time":"2017-03-04T13:37:24" "Uptime":  "Cputemp":
+
     static int timer_publish_state = 0;
 
     if (timer_publish_state >  millis()) return;
@@ -708,6 +652,27 @@ static void display_weather_info(weather_t * weather[]) {
 
 //------------------------------------------------------------------------------------------------------------
 //
+// Display last mqqt ON OFF event
+//
+//------------------------------------------------------------------------------------------------------------
+static char * mqtt_display1 = NULL;
+static char * mqtt_display2 = NULL;
+
+static void get_mqqt_last_event(void) {
+    char    buf[LCD_COL + 1];
+    int     n;
+    memset(buf, ' ', sizeof(buf));
+
+    n = snprintf(buf, sizeof(buf) - 1, "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
+    strncpy((char*)&lcdFb[0][0], buf, n);
+    //daemon_log(LOG_INFO,"'%s'",buf);
+    n = snprintf(buf, sizeof(buf) - 1, "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
+    strncpy((char*)&lcdFb[1][0], buf, n);
+    //daemon_log(LOG_INFO,"'%s'",buf);
+}
+
+//------------------------------------------------------------------------------------------------------------
+//
 // LCD Update Function:
 //
 //------------------------------------------------------------------------------------------------------------
@@ -735,6 +700,9 @@ static void lcd_update (void) {
         break;
     case    4:
         get_littlecore_freq();
+        break;
+    case    5:
+        get_mqqt_last_event();
         break;
     }
 
@@ -819,7 +787,7 @@ static
 void on_connect(struct mosquitto *m, void *udata, int res) {
     if (res == 0) {             /* success */
         //t_client_info *info = (t_client_info *)udata;
-        mosquitto_subscribe(m, NULL, "home/+/weather/#", 0);
+        //mosquitto_subscribe(m, NULL, "home/+/weather/#", 0);
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
     } else {
         daemon_log(LOG_ERR, "connection refused error");
@@ -837,6 +805,8 @@ void on_subscribe(struct mosquitto *m, void *udata, int mid,
     daemon_log(LOG_INFO, "-- subscribed successfully");
 }
 
+regex_t mqtt_topic_regex;
+
 static
 void on_message(struct mosquitto *m, void *udata,
                 const struct mosquitto_message *msg) {
@@ -846,6 +816,27 @@ void on_message(struct mosquitto *m, void *udata,
     daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
                msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
                (char*)msg->payload);
+
+    int ret = regexec(&mqtt_topic_regex, msg->topic, 0, NULL, 0);
+    if (!ret) {
+        daemon_log(LOG_INFO, "--  Accept message");
+        char * topic_copy = strdupa(msg->topic);
+        char * start = strchr(topic_copy, '/');
+        char * end = strrchr(topic_copy, '/');
+        if (start != end) {
+            *end = 0;
+            start++;
+            asprintf(&mqtt_display1, "%s", start);
+            asprintf(&mqtt_display2, "%s", (char*)msg->payload);
+            DispMode = 5;
+        }
+    } else if (ret == REG_NOMATCH) {
+        daemon_log(LOG_INFO, "--  Skip message");
+    } else {
+        char msgbuf[100] = {};
+        regerror(ret, &mqtt_topic_regex, msgbuf, sizeof(msgbuf));
+        daemon_log(LOG_ERR, "Regex match failed: %s", msgbuf);
+    }
     //t_client_info *info = (t_client_info *)udata;
 }
 
@@ -990,6 +981,7 @@ static void usage() {
 // Start Program:
 //
 //------------------------------------------------------------------------------------------------------------
+const char * mqtt_topic_regex_string = "^stat\\/.*\\/POWER$";
 
 int
 main (int argc, char *const *argv) {
@@ -1032,7 +1024,7 @@ main (int argc, char *const *argv) {
     daemon_log_upto(LOG_INFO);
     daemon_log(LOG_INFO, "%s %s", pathname, progname);
 
-    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:")) != -1) {
+    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:R:")) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -1046,6 +1038,10 @@ main (int argc, char *const *argv) {
         case 'd': {
             debug++;
             daemon_log_upto(LOG_DEBUG);
+            break;
+        }
+        case 'R': {
+            mqtt_topic_regex_string = xstrdup(optarg);
             break;
         }
         case 'k': {
@@ -1163,6 +1159,12 @@ main (int argc, char *const *argv) {
             daemon_log(LOG_ERR, "%s: System Init failed", __func__);
             goto finish;
         }
+        daemon_log(LOG_INFO, "Compiling regexp: '%s'", mqtt_topic_regex_string);
+        int reti = regcomp(&mqtt_topic_regex, mqtt_topic_regex_string, 0);
+        if (reti) {
+            daemon_log(LOG_ERR, "Could not compile regex '%s'", mqtt_topic_regex_string);
+            goto finish;
+        }
 
         mosq_init();
         sleep(1);
@@ -1249,6 +1251,7 @@ main (int argc, char *const *argv) {
 
 finish:
     daemon_log(LOG_INFO, "Exiting...");
+    regfree(&mqtt_topic_regex);
     mosq_destroy();
     pthread_join(main_th, NULL);
     FREE(hostname);
