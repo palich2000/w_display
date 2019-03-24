@@ -14,6 +14,7 @@
 #include <ifaddrs.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <net/if.h>
 #include <arpa/inet.h>
@@ -32,6 +33,7 @@
 #include <sys/wait.h>
 #include <regex.h>
 #include <sys/reboot.h>
+#include <sys/mman.h>
 
 #include <math.h>
 #include "dpid.h"
@@ -67,7 +69,11 @@ static int do_exit = 0;
 #define LCD_AUTO_SW_TIMEOUT 5000 // 5 sec
 #define STATE_PUBLISH_INTERVAL 60000 // 60 sec
 #define SENSORS_PUBLISH_INTERVAL 60000 // 60 sec
+#define PIAWARE_PUBLISH_INTERVAL 60000 // 60 sec
 
+static int no_aircraft = 1;
+static int no_weather = 0;
+static int no_display = 0;
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
 static int lcdHandle  = 0;
@@ -524,6 +530,9 @@ static char * sensor_print(char * buffer, const sensor_t * sensor) {
 weather_t * weather[WEATHER_COUNT] = {};
 
 static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
+    if (no_weather) {
+	return;
+    }
     static int timer_publish_state = 0;
     if (timer_publish_state >  millis()) return;
     else {
@@ -564,6 +573,165 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
     }
     strcat(buf, "}");
     daemon_log(LOG_INFO, "%s %s", topic, buf);
+    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+        daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
+    }
+}
+/*
+"last1min": {
+    "start": 1542814193.6,
+    "end": 1542814253.6,
+    "local": {
+      "samples_processed": 144048128,
+      "samples_dropped": 0,
+      "modeac": 0,
+      "modes": 1409430,
+      "bad": 905099,
+      "unknown_icao": 498685,
+      "accepted": [
+        5262,
+        384
+      ],
+      "signal": -8,
+      "noise": -24.4,
+      "peak_signal": -0.9,
+      "strong_signals": 165
+    },
+    "remote": {
+      "modeac": 0,
+      "modes": 81,
+      "bad": 0,
+      "unknown_icao": 0,
+      "accepted": [
+        81,
+        0
+      ]
+    },
+    "cpr": {
+      "surface": 9,
+      "airborne": 973,
+      "global_ok": 948,
+      "global_bad": 0,
+      "global_range": 0,
+      "global_speed": 0,
+      "global_skipped": 9,
+      "local_ok": 21,
+      "local_aircraft_relative": 0,
+      "local_receiver_relative": 0,
+      "local_skipped": 13,
+      "local_range": 0,
+      "local_speed": 0,
+      "filtered": 0
+    },
+    "altitude_suppressed": 0,
+    "cpu": {
+      "demod": 9192,
+      "reader": 2427,
+      "background": 461
+    },
+    "tracks": {
+      "all": 5,
+      "single_message": 6
+    },
+    "messages": 5727
+
+*/
+
+
+const nx_json * read_and_parse_json(char * filename) {
+    const nx_json* json = NULL;
+    int fd = open (filename, O_RDONLY);
+    if (fd < 0) {
+	daemon_log(LOG_ERR, "Unable to open file %s (%d) %s", filename, errno, strerror(errno));
+    }
+    struct stat s;
+    if (!fstat (fd, &s)) {
+	size_t size = s.st_size;
+	char * f = (char *) mmap (0, size, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (f) {
+	    json = nx_json_parse_utf8(strndupa(f,size));
+	    if (!json) {
+		daemon_log(LOG_ERR, "Unable to parse json from file %s %.*s", filename, (int)size, f);
+	    }
+	    munmap(f, size);
+	}
+    } else {
+	daemon_log(LOG_ERR, "Unable to stat file %s (%d) %s", filename, errno, strerror(errno));
+    }
+    close(fd);
+    return json;
+}
+
+double get_mps() {
+    double last_mps = NAN;
+    const nx_json* root = read_and_parse_json("/tmp/dump1090/stats.json");
+    if (root) {
+	int messages = 0;
+	double start = 0., end = 0.;
+	const nx_json * json = nx_json_get(root, "last1min");
+	if (json) {
+	    const nx_json * item = nx_json_get(json, "messages");
+	    if (item) {
+		messages = item->int_value;
+	    }
+	    item = nx_json_get(json, "start");
+	    if (item) {
+		start = item->dbl_value;
+	    }
+	    item = nx_json_get(json, "end");
+	    if (item) {
+		end = item->dbl_value;
+	    }
+	    if ((end-start) != 0) {
+		last_mps = messages / (end-start);
+	    }
+	}
+	nx_json_free(json);
+    }
+    return(last_mps);
+}
+
+int get_aircrafts() {
+    int last_aircrafts = 0;
+    const nx_json* root = read_and_parse_json("/tmp/dump1090/aircraft.json");
+    if (root) {
+	const nx_json * json = nx_json_get(root, "aircraft");
+	if ((json) && (json->type == NX_JSON_ARRAY)) {
+	    last_aircrafts = json->length;
+	}
+	nx_json_free(json);
+    }
+    return(last_aircrafts);
+}
+
+static void publish_piaware(char * topic_template) {
+    if (no_aircraft) {
+	return;
+    }
+    static int timer_publish_state = 0;
+
+    if (timer_publish_state >  millis()) return;
+    else {
+        timer_publish_state = millis () + PIAWARE_PUBLISH_INTERVAL;
+    }
+
+    char topic[128] = {};
+    snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
+
+    time_t timer;
+    char tm_buffer[26] = {};
+    char buf[1024] = {};
+    struct tm* tm_info;
+
+    time(&timer);
+    tm_info = localtime(&timer);
+    strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
+
+    snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Piaware\": {\"Aircraft\": %d, \"Messages\": %.2f}}",
+	tm_buffer, get_aircrafts(), get_mps());
+
+    daemon_log(LOG_INFO, "%s %s", topic, buf);
+    int res;
     if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
@@ -618,7 +786,9 @@ static void publish_state(char * topic_template) {
 static void get_weather_info(weather_t * weather[]) {
 
     char * txt_json;
-
+    if (no_weather) {
+	return;
+    }
     txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
     if (txt_json) {
         get_weather_from_json(weather[WEATHER_EXT], txt_json);
@@ -705,7 +875,9 @@ static void lcd_update (void) {
         get_mqqt_last_event();
         break;
     }
-
+    if (no_display) {
+	return;
+    }
     for(i = 0; i < LCD_ROW; i++)    {
         lcdPosition (lcdHandle, 0, i);
         for(j = 0; j < LCD_COL; j++)    lcdPutchar(lcdHandle, lcdFb[i][j]);
@@ -717,9 +889,11 @@ static void lcd_update (void) {
 // system init
 //
 //------------------------------------------------------------------------------------------------------------
-int system_init(void) {
+int lcd_and_buttons_init(void) {
     int i;
-
+    if (no_display) {
+	return 0;
+    }
     // LCD Init
     lcdHandle = lcdInit (LCD_ROW, LCD_COL, LCD_BUS,
                          PORT_LCD_RS, PORT_LCD_E,
@@ -759,6 +933,9 @@ void blink_leds(void) {
 
 bool boardDataUpdate(void) {
     bool flag_mod = false;
+    if (no_display) {
+	return flag_mod;
+    }
     // button status read
     static int count = 0;
     if (!digitalRead (PORT_BUTTON1) && !digitalRead (PORT_BUTTON2)) {
@@ -899,8 +1076,11 @@ void mosq_init() {
     bool clean_session = true;
 
     mosquitto_lib_init();
-
-    mosq = mosquitto_new(progname, clean_session, &client_info);
+    char * tmp = alloca(strlen(progname)+strlen(hostname)+2);
+    strcpy(tmp, progname);
+    strcat(tmp,"@");
+    strcat(tmp, hostname);
+    mosq = mosquitto_new(tmp, clean_session, &client_info);
     if(!mosq) {
         daemon_log(LOG_ERR, "mosq Error: Out of memory.");
     } else {
@@ -914,7 +1094,7 @@ void mosq_init() {
 
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
 
-        daemon_log(LOG_INFO, "Try connect to Mosquitto server ");
+        daemon_log(LOG_INFO, "Try connect to Mosquitto server as %s", tmp);
         int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (res) {
             daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
@@ -984,6 +1164,7 @@ void * main_loop (void * p) {
         get_weather_info(weather);
         publish_sensors(weather, "tele/%s/SENSOR");
         publish_state("tele/%s/STATE");
+	publish_piaware("tele/%s/PIAWARE");
         lcd_update();
     }
     weather_free(&weather[WEATHER_EXT]);
@@ -1048,7 +1229,7 @@ main (int argc, char *const *argv) {
     daemon_log_upto(LOG_INFO);
     daemon_log(LOG_INFO, "%s %s", pathname, progname);
 
-    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:R:")) != -1) {
+    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:R:VDA")) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -1059,6 +1240,18 @@ main (int argc, char *const *argv) {
             daemonize = false;
             break;
         }
+	case 'A': {
+	    no_aircraft = 0;
+	    break;
+	}
+	case 'V': {
+	    no_weather++;
+	    break;
+	}
+	case 'D': {
+	    no_display++;
+	    break;
+	}
         case 'd': {
             debug++;
             daemon_log_upto(LOG_DEBUG);
@@ -1179,8 +1372,8 @@ main (int argc, char *const *argv) {
 
         wiringPiSetup ();
 
-        if (system_init() < 0) {
-            daemon_log(LOG_ERR, "%s: System Init failed", __func__);
+        if (lcd_and_buttons_init() < 0) {
+            daemon_log(LOG_ERR, "%s: DISPLAY Init failed", __func__);
             goto finish;
         }
         daemon_log(LOG_INFO, "Compiling regexp: '%s'", mqtt_topic_regex_string);
