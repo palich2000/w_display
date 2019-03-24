@@ -31,6 +31,7 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <regex.h>
+#include <sys/reboot.h>
 
 #include <math.h>
 #include "dpid.h"
@@ -634,15 +635,15 @@ static void get_weather_info(weather_t * weather[]) {
 }
 
 static void display_weather_info(weather_t * weather[]) {
-    char    buf[LCD_COL + 1];
+    char    buf[LCD_COL];
     int     n;
     memset(buf, ' ', sizeof(buf));
-    n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%%",
+    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
     strncpy((char*)&lcdFb[0][0], buf, n);
-    n = snprintf(buf, sizeof(buf) - 1, "%2s%5.1f %2.0f%% %3.0f",
+    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
                  weather[WEATHER_EXT]->location,
                  sensor_value_d_by_name(weather[WEATHER_EXT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_EXT], "humidity")),
@@ -659,16 +660,15 @@ static char * mqtt_display1 = NULL;
 static char * mqtt_display2 = NULL;
 
 static void get_mqqt_last_event(void) {
-    char    buf[LCD_COL + 1];
+    char    buf[LCD_COL];
     int     n;
     memset(buf, ' ', sizeof(buf));
 
-    n = snprintf(buf, sizeof(buf) - 1, "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
-    strncpy((char*)&lcdFb[0][0], buf, n);
-    //daemon_log(LOG_INFO,"'%s'",buf);
-    n = snprintf(buf, sizeof(buf) - 1, "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
-    strncpy((char*)&lcdFb[1][0], buf, n);
-    //daemon_log(LOG_INFO,"'%s'",buf);
+    n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
+    strncpy((char*)&lcdFb[0][0], buf, n-1);
+    n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
+    strncpy((char*)&lcdFb[1][0], buf, n-1);
+    //daemon_log(LOG_INFO,"len=%d", n);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -750,20 +750,44 @@ int system_init(void) {
 // board data update
 //
 //------------------------------------------------------------------------------------------------------------
+void blink_leds(void) {
+    for( int i = 0; i < 6; i++) {
+        for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], i % 2 == 0);
+        usleep(500000);
+    }
+}
+
 bool boardDataUpdate(void) {
     bool flag_mod = false;
     // button status read
-    if(!digitalRead (PORT_BUTTON1)) {
-        if(DispMode)        DispMode--;
-        else                DispMode = MAX_DISP_MODE;
-        flag_mod = true;
+    static int count = 0;
+    if (!digitalRead (PORT_BUTTON1) && !digitalRead (PORT_BUTTON2)) {
+        count ++;
+        if (count > 3) {
+            daemon_log(LOG_WARNING, "Poweroff pressed!");
+	    blink_leds();
+            sync();
+	    daemon_log(LOG_WARNING, "Poweroff!");
+	    reboot(RB_POWER_OFF);
+        }
     }
-    if(!digitalRead (PORT_BUTTON2)) {
-        if(DispMode < MAX_DISP_MODE)    DispMode++;
-        else                DispMode = 0;
-        flag_mod = true;
+    else {
+        if(!digitalRead (PORT_BUTTON1)) {
+            if(DispMode)        DispMode--;
+            else                DispMode = MAX_DISP_MODE;
+            flag_mod = true;
+        }
+        else {
+            if(!digitalRead (PORT_BUTTON2)) {
+                if(DispMode < MAX_DISP_MODE)    DispMode++;
+                else                DispMode = 0;
+                flag_mod = true;
+            }
+            else {
+                count = 0;
+            }
+        }
     }
-
     //  LED Control
     for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], 0); // LED All Clear
     digitalWrite(ledPorts[DispMode], 1);
