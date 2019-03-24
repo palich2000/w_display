@@ -925,9 +925,9 @@ int lcd_and_buttons_init(void) {
 //
 //------------------------------------------------------------------------------------------------------------
 void blink_leds(void) {
-    for( int i = 0; i < 6; i++) {
-        for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], i % 2 == 0);
-        usleep(500000);
+    for( int j = 0; j < 6; j++) {
+        for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], j % 2 == 0);
+        usleep(200000);
     }
 }
 
