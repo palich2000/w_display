@@ -531,7 +531,7 @@ weather_t * weather[WEATHER_COUNT] = {};
 
 static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
     if (no_weather) {
-	return;
+        return;
     }
     static int timer_publish_state = 0;
     if (timer_publish_state >  millis()) return;
@@ -642,21 +642,21 @@ const nx_json * read_and_parse_json(char * filename) {
     const nx_json* json = NULL;
     int fd = open (filename, O_RDONLY);
     if (fd < 0) {
-	daemon_log(LOG_ERR, "Unable to open file %s (%d) %s", filename, errno, strerror(errno));
+        daemon_log(LOG_ERR, "Unable to open file %s (%d) %s", filename, errno, strerror(errno));
     }
     struct stat s;
     if (!fstat (fd, &s)) {
-	size_t size = s.st_size;
-	char * f = (char *) mmap (0, size, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (f) {
-	    json = nx_json_parse_utf8(strndupa(f,size));
-	    if (!json) {
-		daemon_log(LOG_ERR, "Unable to parse json from file %s %.*s", filename, (int)size, f);
-	    }
-	    munmap(f, size);
-	}
+        size_t size = s.st_size;
+        char * f = (char *) mmap (0, size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (f) {
+            json = nx_json_parse_utf8(strndupa(f, size));
+            if (!json) {
+                daemon_log(LOG_ERR, "Unable to parse json from file %s %.*s", filename, (int)size, f);
+            }
+            munmap(f, size);
+        }
     } else {
-	daemon_log(LOG_ERR, "Unable to stat file %s (%d) %s", filename, errno, strerror(errno));
+        daemon_log(LOG_ERR, "Unable to stat file %s (%d) %s", filename, errno, strerror(errno));
     }
     close(fd);
     return json;
@@ -666,27 +666,27 @@ double get_mps() {
     double last_mps = NAN;
     const nx_json* root = read_and_parse_json("/tmp/dump1090/stats.json");
     if (root) {
-	int messages = 0;
-	double start = 0., end = 0.;
-	const nx_json * json = nx_json_get(root, "last1min");
-	if (json) {
-	    const nx_json * item = nx_json_get(json, "messages");
-	    if (item) {
-		messages = item->int_value;
-	    }
-	    item = nx_json_get(json, "start");
-	    if (item) {
-		start = item->dbl_value;
-	    }
-	    item = nx_json_get(json, "end");
-	    if (item) {
-		end = item->dbl_value;
-	    }
-	    if ((end-start) != 0) {
-		last_mps = messages / (end-start);
-	    }
-	}
-	nx_json_free(json);
+        int messages = 0;
+        double start = 0., end = 0.;
+        const nx_json * json = nx_json_get(root, "last1min");
+        if (json) {
+            const nx_json * item = nx_json_get(json, "messages");
+            if (item) {
+                messages = item->int_value;
+            }
+            item = nx_json_get(json, "start");
+            if (item) {
+                start = item->dbl_value;
+            }
+            item = nx_json_get(json, "end");
+            if (item) {
+                end = item->dbl_value;
+            }
+            if ((end - start) != 0) {
+                last_mps = messages / (end - start);
+            }
+        }
+        nx_json_free(json);
     }
     return(last_mps);
 }
@@ -695,18 +695,18 @@ int get_aircrafts() {
     int last_aircrafts = 0;
     const nx_json* root = read_and_parse_json("/tmp/dump1090/aircraft.json");
     if (root) {
-	const nx_json * json = nx_json_get(root, "aircraft");
-	if ((json) && (json->type == NX_JSON_ARRAY)) {
-	    last_aircrafts = json->length;
-	}
-	nx_json_free(json);
+        const nx_json * json = nx_json_get(root, "aircraft");
+        if ((json) && (json->type == NX_JSON_ARRAY)) {
+            last_aircrafts = json->length;
+        }
+        nx_json_free(json);
     }
     return(last_aircrafts);
 }
 
 static void publish_piaware(char * topic_template) {
     if (no_aircraft) {
-	return;
+        return;
     }
     static int timer_publish_state = 0;
 
@@ -728,7 +728,7 @@ static void publish_piaware(char * topic_template) {
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
 
     snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Piaware\": {\"Aircraft\": %d, \"Messages\": %.2f}}",
-	tm_buffer, get_aircrafts(), get_mps());
+             tm_buffer, get_aircrafts(), get_mps());
 
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     int res;
@@ -787,7 +787,7 @@ static void get_weather_info(weather_t * weather[]) {
 
     char * txt_json;
     if (no_weather) {
-	return;
+        return;
     }
     txt_json = get_last_line_from_file(FD_EXT_SENSOR_FD);
     if (txt_json) {
@@ -835,9 +835,9 @@ static void get_mqqt_last_event(void) {
     memset(buf, ' ', sizeof(buf));
 
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
-    strncpy((char*)&lcdFb[0][0], buf, n-1);
+    strncpy((char*)&lcdFb[0][0], buf, n - 1);
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
-    strncpy((char*)&lcdFb[1][0], buf, n-1);
+    strncpy((char*)&lcdFb[1][0], buf, n - 1);
     //daemon_log(LOG_INFO,"len=%d", n);
 }
 
@@ -876,7 +876,7 @@ static void lcd_update (void) {
         break;
     }
     if (no_display) {
-	return;
+        return;
     }
     for(i = 0; i < LCD_ROW; i++)    {
         lcdPosition (lcdHandle, 0, i);
@@ -892,7 +892,7 @@ static void lcd_update (void) {
 int lcd_and_buttons_init(void) {
     int i;
     if (no_display) {
-	return 0;
+        return 0;
     }
     // LCD Init
     lcdHandle = lcdInit (LCD_ROW, LCD_COL, LCD_BUS,
@@ -934,7 +934,7 @@ void blink_leds(void) {
 bool boardDataUpdate(void) {
     bool flag_mod = false;
     if (no_display) {
-	return flag_mod;
+        return flag_mod;
     }
     // button status read
     static int count = 0;
@@ -942,10 +942,10 @@ bool boardDataUpdate(void) {
         count ++;
         if (count > 3) {
             daemon_log(LOG_WARNING, "Poweroff pressed!");
-	    blink_leds();
+            blink_leds();
             sync();
-	    daemon_log(LOG_WARNING, "Poweroff!");
-	    reboot(RB_POWER_OFF);
+            daemon_log(LOG_WARNING, "Poweroff!");
+            reboot(RB_POWER_OFF);
         }
     }
     else {
@@ -1076,9 +1076,9 @@ void mosq_init() {
     bool clean_session = true;
 
     mosquitto_lib_init();
-    char * tmp = alloca(strlen(progname)+strlen(hostname)+2);
+    char * tmp = alloca(strlen(progname) + strlen(hostname) + 2);
     strcpy(tmp, progname);
-    strcat(tmp,"@");
+    strcat(tmp, "@");
     strcat(tmp, hostname);
     mosq = mosquitto_new(tmp, clean_session, &client_info);
     if(!mosq) {
@@ -1164,7 +1164,7 @@ void * main_loop (void * p) {
         get_weather_info(weather);
         publish_sensors(weather, "tele/%s/SENSOR");
         publish_state("tele/%s/STATE");
-	publish_piaware("tele/%s/PIAWARE");
+        publish_piaware("tele/%s/PIAWARE");
         lcd_update();
     }
     weather_free(&weather[WEATHER_EXT]);
@@ -1240,18 +1240,18 @@ main (int argc, char *const *argv) {
             daemonize = false;
             break;
         }
-	case 'A': {
-	    no_aircraft = 0;
-	    break;
-	}
-	case 'V': {
-	    no_weather++;
-	    break;
-	}
-	case 'D': {
-	    no_display++;
-	    break;
-	}
+        case 'A': {
+            no_aircraft = 0;
+            break;
+        }
+        case 'V': {
+            no_weather++;
+            break;
+        }
+        case 'D': {
+            no_display++;
+            break;
+        }
         case 'd': {
             debug++;
             daemon_log_upto(LOG_DEBUG);
