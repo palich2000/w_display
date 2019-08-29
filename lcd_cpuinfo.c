@@ -1051,7 +1051,7 @@ void * mosq_thread_loop(void * p) {
         case MOSQ_ERR_SUCCESS:
             break;
         case MOSQ_ERR_NO_CONN: {
-            int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+            int res = mosquitto_connect(mosq, mqtt_host, mqtt_port, mqtt_keepalive);
             if (res) {
                 daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
             }
@@ -1063,6 +1063,17 @@ void * mosq_thread_loop(void * p) {
         case MOSQ_ERR_PROTOCOL:
         case MOSQ_ERR_ERRNO:
             daemon_log(LOG_ERR, "%s %s %s", __FUNCTION__, strerror(errno), mosquitto_strerror(res));
+	    mosquitto_disconnect(mosq);
+	    daemon_log(LOG_ERR, "%s disconnected", __FUNCTION__);
+            sleep(10);
+	    daemon_log(LOG_ERR, "%s Try to reconnect", __FUNCTION__);
+            int res = mosquitto_connect(mosq, mqtt_host, mqtt_port, mqtt_keepalive);
+            if (res) {
+                daemon_log(LOG_ERR, "%s Can't connect to Mosquitto server %s", __FUNCTION__, mosquitto_strerror(res));
+            } else {
+		daemon_log(LOG_ERR, "%s Connected", __FUNCTION__);
+	    }
+	
             break;
         }
     }
