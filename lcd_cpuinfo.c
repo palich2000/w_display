@@ -157,6 +157,15 @@ enum command_int_t {
     CMD_NOT_FOUND = -1,
 };
 
+void wd_sleep(int secs) {
+    extern int do_exit;
+    int s = secs;
+    while (s > 0 && !do_exit) {
+        sleep(1);
+        s--;
+    }
+}
+
 typedef int (* daemon_command_callback_t)(void*);
 
 typedef struct daemon_command_t {
@@ -985,13 +994,26 @@ void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) 
 }
 
 static
-void on_connect(struct mosquitto *m, void *udata, int res) {
-    if (res == 0) {             /* success */
-        //t_client_info *info = (t_client_info *)udata;
-        //mosquitto_subscribe(m, NULL, "home/+/weather/#", 0);
+void on_connect(struct mosquitto * m, void * udata, int res) {
+    switch (res) {
+    case 0:
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
-    } else {
-        daemon_log(LOG_ERR, "connection refused error");
+        break;
+    case 1:
+        DLOG_ERR("Connection refused (unacceptable protocol version).");
+        break;
+    case 2:
+        DLOG_ERR("Connection refused (identifier rejected).");
+        break;
+    case 3:
+        DLOG_ERR("Connection refused (broker unavailable).");
+        break;
+    default:
+        DLOG_ERR("Unknown connection error. (%d)", res);
+        break;
+    }
+    if (res != 0) {
+        wd_sleep(10);
     }
 }
 

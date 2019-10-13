@@ -50,7 +50,7 @@ extern enum daemon_log_flags daemon_log_use;
 
 /** Specifies the syslog identification, use daemon_ident_from_argv0()
  * to set this to a sensible value or generate your own. */
-extern const char* daemon_log_ident;
+extern const char * daemon_log_ident;
 
 #if defined(__GNUC__) && ! defined(DAEMON_GCC_PRINTF_ATTR)
 /** A macro for making use of GCCs printf compilation warnings */
@@ -63,13 +63,13 @@ extern const char* daemon_log_ident;
  * @param prio The syslog priority (PRIO_xxx constants)
  * @param t,... The text message to log
  */
-void daemon_log(int prio, const char* t, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
+void daemon_log(int prio, const char * template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
 
 /** This variable is defined to 1 iff daemon_logv() is supported.*/
 #define DAEMON_LOGV_AVAILABLE 1
 
 /** Same as daemon_logv, but without variadic arguments */
-void daemon_logv(int prio, const char* t, va_list ap);
+void daemon_logv(int prio, const char * template, va_list arglist);
 
 /** Return a sensible syslog identification for daemon_log_ident
  * generated from argv[0]. This will return a pointer to the file name
@@ -77,19 +77,20 @@ void daemon_logv(int prio, const char* t, va_list ap);
  * @param argv0 argv[0] as passed to main()
  * @return The identification string
  */
-char *daemon_ident_from_argv0(char *argv0);
+char * daemon_ident_from_argv0(char * argv0);
 
 unsigned int daemon_log_upto(unsigned int);
 unsigned int  log_check_prio(unsigned int priority);
-char * daemon_prio_name(unsigned int priority);
+const char * daemon_prio_name(unsigned int priority);
 unsigned int    daemon_get_prio(void);
 
 void daemon_trace_switch(bool on);
 bool daemon_trace_switch_get();
-void daemon_enter(const char * func_name, const char* template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
-void daemon_leave(const char * func_name, const char* template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
-void daemon_trace(const char * func_name, const char* template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
+void daemon_enter(const char * func_name, const char * template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
+void daemon_leave(const char * func_name, const char * template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
+void daemon_trace(const char * func_name, const char * template, ...) DAEMON_GCC_PRINTF_ATTR(2, 3);
 void daemon_trace_indent_reset_after_error();
+void hex_dump(const unsigned char * buf, int len);
 
 #ifdef DEBUG
 #define DAEMON_TRACE_ENTER(...)    daemon_enter(__FUNCTION__,__VA_ARGS__)
@@ -100,6 +101,21 @@ void daemon_trace_indent_reset_after_error();
 #define DAEMON_TRACE_LEAVE(...)    ;
 #define DAEMON_TRACE(...)          ;
 #endif
+
+#ifdef  DEBUG
+#define DEBUG_FUNCTION_ENTER  daemon_log(LOG_DEBUG,"DEBUG FUNCTION ENTER %s",__FUNCTION__);
+#define DEBUG_FUNCTION_LEAVE  daemon_log(LOG_DEBUG,"DEBUG FUNCTION LEAVE %s",__FUNCTION__);
+#else
+#define DEBUG_FUNCTION_ENTER  ;
+#define DEBUG_FUNCTION_LEAVE  ;
+#endif
+
+#define DLOG_ERR(format, ...) daemon_log(LOG_ERR, "[%s] "format, __FUNCTION__, ##__VA_ARGS__)
+
+#define DLOG_INFO(format, ...) daemon_log(LOG_INFO, "[%s] "format, __FUNCTION__, ##__VA_ARGS__)
+#define DLOG_WARNING(format, ...) daemon_log(LOG_WARNING, "[%s] "format, __FUNCTION__, ##__VA_ARGS__)
+#define DLOG_DEBUG(format, ...) daemon_log(LOG_DEBUG, "[%s] "format, __FUNCTION__, ##__VA_ARGS__)
+
 
 #ifdef __cplusplus
 }
