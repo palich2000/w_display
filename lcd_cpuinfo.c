@@ -79,8 +79,8 @@ static int no_display = 0;
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
 static int lcdHandle  = 0;
-double station_lon = 50.371;
-double station_lat = 30.389;
+double station_lat = 50.371;
+double station_lon = 30.389;
 
 //
 // DispMode
