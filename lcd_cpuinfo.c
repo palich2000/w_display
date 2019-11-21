@@ -226,7 +226,7 @@ DAEMON_COMMAND_T daemon_commands[] = {
 
 static void get_littlecore_freq(void) {
     int     n, fd, freq;
-    char    buf[LCD_COL];
+    char    buf[LCD_COL+1];
 
     memset(buf, ' ', sizeof(buf));
 
@@ -305,7 +305,7 @@ static void get_date_time(void) {
 
 static void get_cpu_temperature(void) {
     int     fd, temp_C, temp_F, n;
-    char    buf[LCD_COL];
+    char    buf[LCD_COL+1];
 
     memset(buf, ' ', sizeof(buf));
 

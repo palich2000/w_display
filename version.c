@@ -1,3 +1,3 @@
 #include "version.h"
-const char * git_version = "v0.1.14";
+const char * git_version = "v0.1.15";
 const char * git_branch = "master";
