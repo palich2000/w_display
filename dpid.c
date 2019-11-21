@@ -25,7 +25,7 @@
 
 #define VARRUN "/var/run"
 
-const char *daemon_pid_file_ident = NULL;
+const char * daemon_pid_file_ident = NULL;
 daemon_pid_file_proc_t daemon_pid_file_proc = daemon_pid_file_proc_default;
 
 bool is_directory_exist(char * path) {
@@ -51,7 +51,7 @@ bool is_directory_exist(char * path) {
     return false;
 }
 
-const char *daemon_pid_file_proc_default(void) {
+const char * daemon_pid_file_proc_default(void) {
     static char fn[PATH_MAX];
     const char * tmp_p = daemon_pid_file_ident ? daemon_pid_file_ident : "unknown";
     snprintf(fn, sizeof(fn), "%s/%s", VARRUN, tmp_p);
@@ -82,13 +82,13 @@ static int lock_file(int fd, int enable) {
 }
 
 pid_t daemon_pid_file_is_running(void) {
-    const char *fn;
+    const char * fn;
     static char txt[256];
     int fd = -1, locked = -1;
     pid_t ret = (pid_t) - 1, pid;
     ssize_t l;
     long lpid;
-    char *e = NULL;
+    char * e = NULL;
 
     if (!(fn = daemon_pid_file_proc())) {
         errno = EINVAL;
@@ -193,7 +193,7 @@ int daemon_pid_file_kill_wait(int s, int m) {
 }
 
 int daemon_pid_file_create(void) {
-    const char *fn;
+    const char * fn;
     int fd = -1;
     int ret = -1;
     int locked = -1;
@@ -250,7 +250,7 @@ finish:
 }
 
 int daemon_pid_file_remove(void) {
-    const char *fn;
+    const char * fn;
 
     if (!(fn = daemon_pid_file_proc())) {
         errno = EINVAL;

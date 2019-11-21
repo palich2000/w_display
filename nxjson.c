@@ -49,8 +49,8 @@ extern "C" {
 
 static const nx_json dummy = { NX_JSON_NULL };
 
-static nx_json* create_json(nx_json_type type, const char* key, nx_json* parent) {
-    nx_json* js = NX_JSON_CALLOC();
+static nx_json * create_json(nx_json_type type, const char * key, nx_json * parent) {
+    nx_json * js = NX_JSON_CALLOC();
     assert(js);
     js->type = type;
     js->key = key;
@@ -64,9 +64,9 @@ static nx_json* create_json(nx_json_type type, const char* key, nx_json* parent)
     return js;
 }
 
-void nx_json_free(const nx_json* js) {
-    nx_json* p = js->child;
-    nx_json* p1;
+void nx_json_free(const nx_json * js) {
+    nx_json * p = js->child;
+    nx_json * p1;
     while (p) {
         p1 = p->next;
         nx_json_free(p);
@@ -75,7 +75,7 @@ void nx_json_free(const nx_json* js) {
     NX_JSON_FREE(js);
 }
 
-static int unicode_to_utf8(unsigned int codepoint, char* p, char** endp) {
+static int unicode_to_utf8(unsigned int codepoint, char * p, char ** endp) {
     // code from http://stackoverflow.com/a/4609989/697313
     if (codepoint < 0x80) *p++ = codepoint;
     else if (codepoint < 0x800) *p++ = 192 + codepoint / 64, *p++ = 128 + codepoint % 64;
@@ -96,9 +96,9 @@ static inline int hex_val(char c) {
     return -1;
 }
 
-static char* unescape_string(char* s, char** end, nx_json_unicode_encoder encoder) {
-    char* p = s;
-    char* d = s;
+static char * unescape_string(char * s, char ** end, nx_json_unicode_encoder encoder) {
+    char * p = s;
+    char * d = s;
     char c;
     while ((c = *p++)) {
         if (c == '"') {
@@ -138,7 +138,7 @@ static char* unescape_string(char* s, char** end, nx_json_unicode_encoder encode
                     *d++ = c;
                     break;
                 }
-                char* ps = p - 1;
+                char * ps = p - 1;
                 int h1, h2, h3, h4;
                 if ((h1 = hex_val(p[1])) < 0 || (h2 = hex_val(p[2])) < 0 || (h3 = hex_val(p[3])) < 0 || (h4 = hex_val(p[4])) < 0) {
                     NX_JSON_REPORT_ERROR("invalid unicode escape", p - 1);
@@ -177,9 +177,9 @@ static char* unescape_string(char* s, char** end, nx_json_unicode_encoder encode
     return 0;
 }
 
-static char* skip_block_comment(char* p) {
+static char * skip_block_comment(char * p) {
     // assume p[-2]=='/' && p[-1]=='*'
-    char* ps = p - 2;
+    char * ps = p - 2;
     if (!*p) {
         NX_JSON_REPORT_ERROR("endless comment", ps);
         return 0;
@@ -194,7 +194,7 @@ REPEAT:
     return p + 1;
 }
 
-static char* parse_key(const char** key, char* p, nx_json_unicode_encoder encoder) {
+static char * parse_key(const char ** key, char * p, nx_json_unicode_encoder encoder) {
     // on '}' return with *p=='}'
     char c;
     while ((c = *p++)) {
@@ -211,7 +211,7 @@ static char* parse_key(const char** key, char* p, nx_json_unicode_encoder encode
             return p - 1;
         } else if (c == '/') {
             if (*p == '/') { // line comment
-                char* ps = p - 1;
+                char * ps = p - 1;
                 p = strchr(p + 1, '\n');
                 if (!p) {
                     NX_JSON_REPORT_ERROR("endless comment", ps);
@@ -234,8 +234,8 @@ static char* parse_key(const char** key, char* p, nx_json_unicode_encoder encode
     return 0; // error
 }
 
-static char* parse_value(nx_json* parent, const char* key, char* p, nx_json_unicode_encoder encoder) {
-    nx_json* js;
+static char * parse_value(nx_json * parent, const char * key, char * p, nx_json_unicode_encoder encoder) {
+    nx_json * js;
     while (1) {
         switch (*p) {
         case '\0':
@@ -253,7 +253,7 @@ static char* parse_value(nx_json* parent, const char* key, char* p, nx_json_unic
             js = create_json(NX_JSON_OBJECT, key, parent);
             p++;
             while (1) {
-                const char* new_key;
+                const char * new_key;
                 p = parse_key(&new_key, p, encoder);
                 if (!p) return 0; // error
                 if (*p == '}') return p + 1; // end of object
@@ -288,7 +288,7 @@ static char* parse_value(nx_json* parent, const char* key, char* p, nx_json_unic
         case '8':
         case '9': {
             js = create_json(NX_JSON_INTEGER, key, parent);
-            char* pe;
+            char * pe;
             js->int_value = strtoll(p, &pe, 0);
             if (pe == p || errno == ERANGE) {
                 NX_JSON_REPORT_ERROR("invalid number", p);
@@ -331,7 +331,7 @@ static char* parse_value(nx_json* parent, const char* key, char* p, nx_json_unic
             return 0; // error
         case '/': // comment
             if (p[1] == '/') { // line comment
-                char* ps = p;
+                char * ps = p;
                 p = strchr(p + 2, '\n');
                 if (!p) {
                     NX_JSON_REPORT_ERROR("endless comment", ps);
@@ -353,11 +353,11 @@ static char* parse_value(nx_json* parent, const char* key, char* p, nx_json_unic
     }
 }
 
-const nx_json* nx_json_parse_utf8(char* text) {
+const nx_json * nx_json_parse_utf8(char * text) {
     return nx_json_parse(text, unicode_to_utf8);
 }
 
-const nx_json* nx_json_parse(char* text, nx_json_unicode_encoder encoder) {
+const nx_json * nx_json_parse(char * text, nx_json_unicode_encoder encoder) {
     nx_json js = {0};
     if (!parse_value(&js, 0, text, encoder)) {
         if (js.child) nx_json_free(js.child);
@@ -366,18 +366,18 @@ const nx_json* nx_json_parse(char* text, nx_json_unicode_encoder encoder) {
     return js.child;
 }
 
-const nx_json* nx_json_get(const nx_json* json, const char* key) {
+const nx_json * nx_json_get(const nx_json * json, const char * key) {
     if (!json || !key) return &dummy; // never return null
-    nx_json* js;
+    nx_json * js;
     for (js = json->child; js; js = js->next) {
         if (js->key && !strcmp(js->key, key)) return js;
     }
     return &dummy; // never return null
 }
 
-const nx_json* nx_json_item(const nx_json* json, int idx) {
+const nx_json * nx_json_item(const nx_json * json, int idx) {
     if (!json) return &dummy; // never return null
-    nx_json* js;
+    nx_json * js;
     for (js = json->child; js; js = js->next) {
         if (!idx--) return js;
     }

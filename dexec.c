@@ -23,7 +23,7 @@
 
 #define MAX_ARGS 100
 
-int daemon_execv(const char *dir, int *ret, const char *prog, va_list ap) {
+int daemon_execv(const char * dir, int * ret, const char * prog, va_list ap) {
     pid_t pid;
     int p[2];
     unsigned n = 0;
@@ -43,7 +43,7 @@ int daemon_execv(const char *dir, int *ret, const char *prog, va_list ap) {
         return -1;
 
     } else if (pid == 0) {
-        char *args[MAX_ARGS];
+        char * args[MAX_ARGS];
         int i;
 
         if (p[1] != 1)
@@ -76,7 +76,7 @@ int daemon_execv(const char *dir, int *ret, const char *prog, va_list ap) {
         }
 
         for (i = 0; i < MAX_ARGS - 1; i++)
-            if (!(args[i] = va_arg(ap, char*)))
+            if (!(args[i] = va_arg(ap, char *)))
                 break;
         args[i] = NULL;
 
@@ -170,7 +170,7 @@ int daemon_execv(const char *dir, int *ret, const char *prog, va_list ap) {
     }
 }
 
-int daemon_exec(const char *dir,  int * ret, const char *prog, ...) {
+int daemon_exec(const char * dir,  int * ret, const char * prog, ...) {
     va_list ap;
     int r;
 
@@ -182,7 +182,7 @@ int daemon_exec(const char *dir,  int * ret, const char *prog, ...) {
 }
 
 
-pid_t daemon_execv1(const char *dir, const char *prog, va_list ap) {
+pid_t daemon_execv1(const char * dir, const char * prog, va_list ap) {
     pid_t pid;
 
     assert(daemon_signal_fd() >= 0);
@@ -193,7 +193,7 @@ pid_t daemon_execv1(const char *dir, const char *prog, va_list ap) {
         return -1;
 
     } else if (pid == 0) {
-        char *args[MAX_ARGS];
+        char * args[MAX_ARGS];
         int i;
 
         umask(0022); /* Set up a sane umask */
@@ -206,7 +206,7 @@ pid_t daemon_execv1(const char *dir, const char *prog, va_list ap) {
         }
 
         for (i = 0; i < MAX_ARGS - 1; i++)
-            if (!(args[i] = va_arg(ap, char*)))
+            if (!(args[i] = va_arg(ap, char *)))
                 break;
         args[i] = NULL;
 
@@ -222,7 +222,7 @@ pid_t daemon_execv1(const char *dir, const char *prog, va_list ap) {
 
 }
 
-pid_t daemon_exec1(const char *dir, const char *prog, ...) {
+pid_t daemon_exec1(const char * dir, const char * prog, ...) {
     va_list ap;
     pid_t r;
 
@@ -243,13 +243,13 @@ pid_t daemon_exec1(const char *dir, const char *prog, ...) {
 
 
 int
-daemon_execva2(const char *dir, const char *prog,
-               int *read_fd, int *write_fd, int *error_fd, pid_t *pidp,
+daemon_execva2(const char * dir, const char * prog,
+               int * read_fd, int * write_fd, int * error_fd, pid_t * pidp,
                va_list ap) {
-    char *args[MAX_ARGS];
+    char * args[MAX_ARGS];
     int i;
     for (i = 0; i < MAX_ARGS - 1; i++) {
-        if (!(args[i] = va_arg(ap, char*))) {
+        if (!(args[i] = va_arg(ap, char *))) {
             syslog(LOG_INFO, "ARG[%d]=%s", i, args[i]);
             break;
         } else {
@@ -262,9 +262,9 @@ daemon_execva2(const char *dir, const char *prog,
 
 
 int
-daemon_execv2(const char *dir, const char *prog,
-              int *read_fd, int *write_fd, int *error_fd, pid_t *pidp,
-              char *const args[]) {
+daemon_execv2(const char * dir, const char * prog,
+              int * read_fd, int * write_fd, int * error_fd, pid_t * pidp,
+              char * const args[]) {
     pid_t pid;
     int pipe_from_child[2], pipe_to_child[2], pipe_error[2];
 
@@ -371,8 +371,8 @@ err:
     return(-1);
 }
 
-int daemon_exec2(const char *dir, const char *prog,
-                 int *read_fd, int *write_fd, int *error_fd, pid_t *pidp, ...) {
+int daemon_exec2(const char * dir, const char * prog,
+                 int * read_fd, int * write_fd, int * error_fd, pid_t * pidp, ...) {
     va_list ap;
     pid_t r;
 

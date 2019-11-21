@@ -11,8 +11,8 @@
 
 
 int extract_zip(const char * zip_archive_filename, const char * dst_folder) {
-    struct zip *zip_file;
-    struct zip_file *file_in_zip;
+    struct zip * zip_file;
+    struct zip_file * file_in_zip;
     int err;
     int files_total;
     int r;

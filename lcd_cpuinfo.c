@@ -107,7 +107,7 @@ static int DispMode = 1;
 //
 //------------------------------------------------------------------------------------------------------------
 typedef struct _client_info_t {
-    struct mosquitto *m;
+    struct mosquitto * m;
     pid_t pid;
     uint32_t tick_ct;
 } t_client_info;
@@ -118,7 +118,7 @@ char * mqtt_password = "zhopa";
 int mqtt_port = 8883;
 int mqtt_keepalive = 60;
 
-static struct mosquitto *mosq = NULL;
+static struct mosquitto * mosq = NULL;
 static t_client_info client_info;
 static pthread_t mosq_th = 0;
 
@@ -166,7 +166,7 @@ void wd_sleep(int secs) {
     }
 }
 
-typedef int (* daemon_command_callback_t)(void*);
+typedef int (* daemon_command_callback_t)(void *);
 
 typedef struct daemon_command_t {
     char * command_name;
@@ -226,7 +226,7 @@ DAEMON_COMMAND_T daemon_commands[] = {
 
 static void get_littlecore_freq(void) {
     int     n, fd, freq;
-    char    buf[LCD_COL+1];
+    char    buf[LCD_COL + 1];
 
     memset(buf, ' ', sizeof(buf));
 
@@ -237,9 +237,9 @@ static void get_littlecore_freq(void) {
         close(fd);
         freq = atoi(buf);
         n = sprintf(buf, "Little-Core Freq");
-        strncpy((char*)&lcdFb[0][0], buf, n);
+        strncpy((char *)&lcdFb[0][0], buf, n);
         n = sprintf(buf, "%d Mhz", freq / 1000);
-        strncpy((char*)&lcdFb[1][4], buf, n);
+        strncpy((char *)&lcdFb[1][4], buf, n);
     }
 }
 
@@ -249,7 +249,7 @@ static void get_littlecore_freq(void) {
 //
 //------------------------------------------------------------------------------------------------------------
 static void get_ethernet_ip(void) {
-    struct  ifaddrs *ifa;
+    struct  ifaddrs * ifa;
     int     n;
     char    buf[LCD_COL];
 
@@ -259,14 +259,14 @@ static void get_ethernet_ip(void) {
 
     while(ifa)  {
         if(ifa->ifa_addr && ifa->ifa_addr->sa_family == AF_INET)    {
-            struct sockaddr_in *pAddr = (struct sockaddr_in *)ifa->ifa_addr;
+            struct sockaddr_in * pAddr = (struct sockaddr_in *)ifa->ifa_addr;
 
             if(0 == strncmp(ifa->ifa_name, "eth", 2)) {
                 n = sprintf(buf, "My IP Addr(%s)", ifa->ifa_name);
-                strncpy((char*)&lcdFb[0][0], buf, n);
+                strncpy((char *)&lcdFb[0][0], buf, n);
 
                 n = sprintf(buf, "%s", inet_ntoa(pAddr->sin_addr));
-                strncpy((char*)&lcdFb[1][1], buf, n);
+                strncpy((char *)&lcdFb[1][1], buf, n);
             }
         }
         ifa = ifa->ifa_next;
@@ -281,7 +281,7 @@ static void get_ethernet_ip(void) {
 //------------------------------------------------------------------------------------------------------------
 static void get_date_time(void) {
     time_t      tm_time;
-    struct tm   *st_time;
+    struct tm  * st_time;
     char        buf[LCD_COL];
     int         n;
 
@@ -291,9 +291,9 @@ static void get_date_time(void) {
     st_time = localtime( &tm_time);
 
     n = strftime(buf, LCD_COL, "%Y/%m/%d %a", st_time);
-    strncpy((char*)&lcdFb[0][0], buf, n);
+    strncpy((char *)&lcdFb[0][0], buf, n);
     n = strftime(buf, LCD_COL, "%H:%M:%S %p", st_time);
-    strncpy((char*)&lcdFb[1][2], buf, n);
+    strncpy((char *)&lcdFb[1][2], buf, n);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -305,7 +305,7 @@ static void get_date_time(void) {
 
 static void get_cpu_temperature(void) {
     int     fd, temp_C, temp_F, n;
-    char    buf[LCD_COL+1];
+    char    buf[LCD_COL + 1];
 
     memset(buf, ' ', sizeof(buf));
 
@@ -319,9 +319,9 @@ static void get_cpu_temperature(void) {
         temp_F = (temp_C * 18 + 320) / 10;
 
         n = sprintf(buf, "CPU Temperature");
-        strncpy((char*)&lcdFb[0][0], buf, n);
+        strncpy((char *)&lcdFb[0][0], buf, n);
         n = sprintf(buf, "%3d *C, %3d.%1d *F", temp_C, temp_F, temp_F % 10);
-        strncpy((char*)&lcdFb[1][0], buf, n);
+        strncpy((char *)&lcdFb[1][0], buf, n);
     }
 }
 
@@ -334,11 +334,11 @@ static void get_cpu_temperature(void) {
 
 static char * get_last_line_from_file(char * filename) {
     char buffer[BUF_SIZE];
-    char *ret = NULL;
+    char * ret = NULL;
 
     if ((!filename) || (!*filename)) return(ret);
 
-    FILE *fp = fopen(filename, "r");
+    FILE * fp = fopen(filename, "r");
 
     if (fp == NULL) {
         daemon_log(LOG_ERR, "%s : file open error!", __func__);
@@ -405,7 +405,7 @@ void sensor_free(sensor_t ** sensor) {
 #define FD_INT_SENSOR_FD  "/tmp/weather/weather_board.log"
 
 typedef struct _weather_t {
-    char* location;
+    char * location;
     array_t * sensors;
 } weather_t;
 
@@ -432,7 +432,7 @@ void weather_clear(weather_t * weather) {
 sensor_t * sensor_by_name(weather_t * weather, const char * sensor_name) {
     if ((weather) && (weather->sensors) && (sensor_name) && (strlen(sensor_name) > 0)) {
         array_for_each(weather->sensors, i) {
-            sensor_t * sensor = array_getitem(weather->sensors , i);
+            sensor_t * sensor = array_getitem(weather->sensors, i);
             if ((sensor) && (sensor->name) && (strcmp(sensor_name, sensor->name) == 0)) {
                 return sensor;
             }
@@ -447,7 +447,7 @@ double sensor_value_d_by_name(weather_t * weather, const char * sensor_name) {
     return NAN;
 }
 
-__attribute__ ((unused)) static void json_print(int level, const nx_json* json) {
+__attribute__ ((unused)) static void json_print(int level, const nx_json * json) {
     daemon_log(LOG_INFO, "%*s%s", level, "", json->key);
     if (json->child) {
         json_print(level + 1, json->child);
@@ -457,7 +457,7 @@ __attribute__ ((unused)) static void json_print(int level, const nx_json* json) 
     }
 }
 
-static void add_sensor_value(weather_t * weather, const nx_json* json) {
+static void add_sensor_value(weather_t * weather, const nx_json * json) {
     if ((!json) || (!json->key) || (!strlen(json->key))) {
         return;
     }
@@ -481,7 +481,7 @@ static void add_sensor_value(weather_t * weather, const nx_json* json) {
     }
 }
 
-static void json_recursive_add_sensors(weather_t * weather, const nx_json* json) {
+static void json_recursive_add_sensors(weather_t * weather, const nx_json * json) {
 
     add_sensor_value(weather, json);
     if (json->child) {
@@ -495,7 +495,7 @@ static void json_recursive_add_sensors(weather_t * weather, const nx_json* json)
 static void get_weather_from_json(weather_t * weather, char * txt_json) {
     if ((!txt_json) || (!*txt_json) || (!weather)) return;
 
-    const nx_json* json = nx_json_parse_utf8(txt_json);
+    const nx_json * json = nx_json_parse_utf8(txt_json);
 
     if (json) {
         weather_clear(weather);
@@ -554,7 +554,7 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
     time_t timer;
     char tm_buffer[26] = {};
     char buf[1024] = {};
-    struct tm* tm_info;
+    struct tm * tm_info;
     //struct sysinfo info;
     int res;
 
@@ -648,7 +648,7 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
 
 
 const nx_json * read_and_parse_json(char * filename) {
-    const nx_json* json = NULL;
+    const nx_json * json = NULL;
     int fd = open (filename, O_RDONLY);
     if (fd < 0) {
         daemon_log(LOG_ERR, "Unable to open file %s (%d) %s", filename, errno, strerror(errno));
@@ -673,7 +673,7 @@ const nx_json * read_and_parse_json(char * filename) {
 
 double get_mps() {
     double last_mps = NAN;
-    const nx_json* root = read_and_parse_json("/tmp/dump1090/stats.json");
+    const nx_json * root = read_and_parse_json("/tmp/dump1090/stats.json");
     if (root) {
         int messages = 0;
         double start = 0., end = 0.;
@@ -702,7 +702,7 @@ double get_mps() {
 
 int get_aircrafts() {
     int last_aircrafts = 0;
-    const nx_json* root = read_and_parse_json("/tmp/dump1090/aircraft.json");
+    const nx_json * root = read_and_parse_json("/tmp/dump1090/aircraft.json");
     if (root) {
         const nx_json * json = nx_json_get(root, "aircraft");
         if ((json) && (json->type == NX_JSON_ARRAY)) {
@@ -730,7 +730,7 @@ static void publish_piaware(char * topic_template) {
     time_t timer;
     char tm_buffer[26] = {};
     char buf[1024] = {};
-    struct tm* tm_info;
+    struct tm * tm_info;
 
     time(&timer);
     tm_info = localtime(&timer);
@@ -759,7 +759,7 @@ static void publish_state(char * topic_template) {
     char tm_buffer[26] = {};
     char buf[255] = {};
     char topic[128] = {};
-    struct tm* tm_info;
+    struct tm * tm_info;
     struct sysinfo info;
     int res;
 
@@ -821,13 +821,13 @@ static void display_weather_info(weather_t * weather[]) {
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
-    strncpy((char*)&lcdFb[0][0], buf, n);
+    strncpy((char *)&lcdFb[0][0], buf, n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
                  weather[WEATHER_EXT]->location,
                  sensor_value_d_by_name(weather[WEATHER_EXT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_EXT], "humidity")),
                  roundf(0.750062 * sensor_value_d_by_name(weather[WEATHER_INT], "pressure")));
-    strncpy((char*)&lcdFb[1][0], buf, n);
+    strncpy((char *)&lcdFb[1][0], buf, n);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -844,9 +844,9 @@ static void get_mqqt_last_event(void) {
     memset(buf, ' ', sizeof(buf));
 
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
-    strncpy((char*)&lcdFb[0][0], buf, n - 1);
+    strncpy((char *)&lcdFb[0][0], buf, n - 1);
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
-    strncpy((char*)&lcdFb[1][0], buf, n - 1);
+    strncpy((char *)&lcdFb[1][0], buf, n - 1);
     //daemon_log(LOG_INFO,"len=%d", n);
 }
 
@@ -956,20 +956,17 @@ bool boardDataUpdate(void) {
             daemon_log(LOG_WARNING, "Poweroff!");
             reboot(RB_POWER_OFF);
         }
-    }
-    else {
+    } else {
         if(!digitalRead (PORT_BUTTON1)) {
             if(DispMode)        DispMode--;
             else                DispMode = MAX_DISP_MODE;
             flag_mod = true;
-        }
-        else {
+        } else {
             if(!digitalRead (PORT_BUTTON2)) {
                 if(DispMode < MAX_DISP_MODE)    DispMode++;
                 else                DispMode = 0;
                 flag_mod = true;
-            }
-            else {
+            } else {
                 count = 0;
             }
         }
@@ -981,7 +978,7 @@ bool boardDataUpdate(void) {
 }
 
 
-void on_log(struct mosquitto *mosq, void *userdata, int level, const char *str) {
+void on_log(struct mosquitto * mosq, void * userdata, int level, const char * str) {
     switch(level) {
 //    case MOSQ_LOG_DEBUG:
 //    case MOSQ_LOG_INFO:
@@ -1018,27 +1015,27 @@ void on_connect(struct mosquitto * m, void * udata, int res) {
 }
 
 static
-void on_publish(struct mosquitto *m, void *udata, int m_id) {
+void on_publish(struct mosquitto * m, void * udata, int m_id) {
     //daemon_log(LOG_ERR, "-- published successfully");
 }
 
 static
-void on_subscribe(struct mosquitto *m, void *udata, int mid,
-                  int qos_count, const int *granted_qos) {
+void on_subscribe(struct mosquitto * m, void * udata, int mid,
+                  int qos_count, const int * granted_qos) {
     daemon_log(LOG_INFO, "-- subscribed successfully");
 }
 
 regex_t mqtt_topic_regex;
 
 static
-void on_message(struct mosquitto *m, void *udata,
-                const struct mosquitto_message *msg) {
+void on_message(struct mosquitto * m, void * udata,
+                const struct mosquitto_message * msg) {
     if (msg == NULL) {
         return;
     }
     daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
                msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
-               (char*)msg->payload);
+               (char *)msg->payload);
 
     int ret = regexec(&mqtt_topic_regex, msg->topic, 0, NULL, 0);
     if (!ret) {
@@ -1050,7 +1047,7 @@ void on_message(struct mosquitto *m, void *udata,
             *end = 0;
             start++;
             asprintf(&mqtt_display1, "%s", start);
-            asprintf(&mqtt_display2, "%s", (char*)msg->payload);
+            asprintf(&mqtt_display2, "%s", (char *)msg->payload);
             DispMode = 5;
         }
     } else if (ret == REG_NOMATCH) {
@@ -1065,7 +1062,7 @@ void on_message(struct mosquitto *m, void *udata,
 
 static
 void * mosq_thread_loop(void * p) {
-    t_client_info *info = (t_client_info *)p;
+    t_client_info * info = (t_client_info *)p;
     daemon_log(LOG_INFO, "%s", __FUNCTION__);
     while (!do_exit) {
         int res = mosquitto_loop(info->m, 1000, 1);
@@ -1085,17 +1082,17 @@ void * mosq_thread_loop(void * p) {
         case MOSQ_ERR_PROTOCOL:
         case MOSQ_ERR_ERRNO:
             daemon_log(LOG_ERR, "%s %s %s", __FUNCTION__, strerror(errno), mosquitto_strerror(res));
-	    mosquitto_disconnect(mosq);
-	    daemon_log(LOG_ERR, "%s disconnected", __FUNCTION__);
+            mosquitto_disconnect(mosq);
+            daemon_log(LOG_ERR, "%s disconnected", __FUNCTION__);
             sleep(10);
-	    daemon_log(LOG_ERR, "%s Try to reconnect", __FUNCTION__);
+            daemon_log(LOG_ERR, "%s Try to reconnect", __FUNCTION__);
             int res = mosquitto_connect(mosq, mqtt_host, mqtt_port, mqtt_keepalive);
             if (res) {
                 daemon_log(LOG_ERR, "%s Can't connect to Mosquitto server %s", __FUNCTION__, mosquitto_strerror(res));
             } else {
-		daemon_log(LOG_ERR, "%s Connected", __FUNCTION__);
-	    }
-	
+                daemon_log(LOG_ERR, "%s Connected", __FUNCTION__);
+            }
+
             break;
         }
     }
@@ -1222,7 +1219,7 @@ static void usage() {
 const char * mqtt_topic_regex_string = "^stat\\/.*\\/POWER$";
 
 int
-main (int argc, char *const *argv) {
+main (int argc, char * const * argv) {
     int flags;
     int daemonize = true;
     int debug = 0;

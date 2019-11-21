@@ -43,7 +43,7 @@ static int _null_open(int f, int fd) {
     return fd;
 }
 
-static ssize_t atomic_read(int fd, void *d, size_t l) {
+static ssize_t atomic_read(int fd, void * d, size_t l) {
     ssize_t t = 0;
 
     while (l > 0) {
@@ -58,14 +58,14 @@ static ssize_t atomic_read(int fd, void *d, size_t l) {
         }
 
         t += r;
-        d = (char*) d + r;
+        d = (char *) d + r;
         l -= r;
     }
 
     return t;
 }
 
-static ssize_t atomic_write(int fd, const void *d, size_t l) {
+static ssize_t atomic_write(int fd, const void * d, size_t l) {
     ssize_t t = 0;
 
     while (l > 0) {
@@ -80,14 +80,14 @@ static ssize_t atomic_write(int fd, const void *d, size_t l) {
         }
 
         t += r;
-        d = (const char*) d + r;
+        d = (const char *) d + r;
         l -= r;
     }
 
     return t;
 }
 
-static int move_fd_up(int *fd) {
+static int move_fd_up(int * fd) {
     assert(fd);
 
     while (*fd <= 2) {
@@ -339,7 +339,7 @@ int daemon_retval_wait(int timeout) {
 int daemon_close_all(int except_fd, ...) {
     va_list original_ap, ap;
     int n = 0, i, r;
-    int *p;
+    int * p;
 
     va_start(original_ap, except_fd);
     va_copy(ap, original_ap);
@@ -377,15 +377,15 @@ int daemon_close_allv(const int except_fds[]) {
 
 #ifdef __linux__
 
-    DIR *d;
+    DIR * d;
 
     if ((d = opendir("/proc/self/fd"))) {
 
-        struct dirent *de;
+        struct dirent * de;
 
         while ((de = readdir(d))) {
             long l;
-            char *e = NULL;
+            char * e = NULL;
             int i, fd;
 
             if (de->d_name[0] == '.')

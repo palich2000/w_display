@@ -35,14 +35,14 @@ extern "C" {
 
 /** Prototype of a function for generating the name of a PID file.
  */
-typedef const char* (*daemon_pid_file_proc_t)(void);
+typedef const char * (*daemon_pid_file_proc_t)(void);
 
 /** Identification string for the PID file name, only used when
  * daemon_pid_file_proc is set to daemon_pid_file_proc_default(). Use
  * daemon_ident_from_argv0() to generate an identification string from
  * argv[0]
  */
-extern const char *daemon_pid_file_ident;
+extern const char * daemon_pid_file_ident;
 
 /** A function pointer which is used to generate the name of the PID
  * file to manipulate. Points to daemon_pid_file_proc_default() by
@@ -54,7 +54,7 @@ extern daemon_pid_file_proc_t daemon_pid_file_proc;
  * daemon_pid_file_ident
  * @return The PID file path
  */
-const char *daemon_pid_file_proc_default(void);
+const char * daemon_pid_file_proc_default(void);
 
 /** Creates PID pid file for the current process
  * @return zero on success, nonzero on failure

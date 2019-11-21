@@ -9,8 +9,8 @@
 static void array_grow(array_t * a, int min_capacity);
 static void array_init(array_t * a);
 
-array_t *array_create(void) {
-    array_t *a = xmalloc(sizeof(array_t));
+array_t * array_create(void) {
+    array_t * a = xmalloc(sizeof(array_t));
     if (!a) daemon_log(LOG_ERR, "virtual memory exhausted in function \"%s\" al line %d", __FUNCTION__, __LINE__);
     array_init(a);
     return a;
@@ -77,7 +77,7 @@ void array_destroy(array_t ** a, free_func_t free_func, freep_func_t freep_func)
     if ((a == NULL) || (*a == NULL))
         return;
 
-    array_t *tmp = *a;
+    array_t * tmp = *a;
 
     pthread_mutex_lock(&tmp->mtx);
     *a = NULL;
@@ -87,7 +87,7 @@ void array_destroy(array_t ** a, free_func_t free_func, freep_func_t freep_func)
     FREE(tmp);
 }
 
-void array_append(array_t * a, void *obj) {
+void array_append(array_t * a, void * obj) {
     if (a == NULL)
         return;
 
@@ -98,7 +98,7 @@ void array_append(array_t * a, void *obj) {
     pthread_mutex_unlock(&a->mtx);
 }
 
-void array_insert(array_t *a, void *obj, int position) {
+void array_insert(array_t * a, void * obj, int position) {
     if (a == NULL)
         return;
     pthread_mutex_lock(&a->mtx);
@@ -115,7 +115,7 @@ void array_insert(array_t *a, void *obj, int position) {
     pthread_mutex_unlock(&a->mtx);
 }
 
-bool array_del(array_t * a, void *obj) {
+bool array_del(array_t * a, void * obj) {
     bool ret = false;
 
     if (a == NULL)
@@ -151,7 +151,7 @@ void array_pop(array_t * a) {
     pthread_mutex_unlock(&a->mtx);
 }
 
-__attribute__ ((unused)) static void array_del_no_lock(array_t * a, void *obj) {
+__attribute__ ((unused)) static void array_del_no_lock(array_t * a, void * obj) {
     if (a == NULL)
         return;
     int pos = 0;
@@ -193,13 +193,13 @@ void array_resize(array_t * a, int count) {
     pthread_mutex_unlock(&a->mtx);
 }
 
-int  array_getcount(array_t *  a) {
+int  array_getcount(array_t  * a) {
     if (a == NULL)
         return -1;
     return a->count;
 }
 
-void*  array_getitem( array_t * a, const int position) {
+void * array_getitem( array_t * a, const int position) {
     if (a == NULL)
         return NULL;
     if (position >= a->count || position < 0)

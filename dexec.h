@@ -57,28 +57,28 @@ extern "C" {
  * @param ... The arguments to be passed to the program, followed by a (char *) NULL
  * @return Nonzero on failure, zero on success
  */
-int daemon_exec(const char *dir, int *ret, const char *prog, ...) DAEMON_GCC_SENTINEL;
-pid_t daemon_exec1(const char *dir, const char *prog, ...) DAEMON_GCC_SENTINEL;
-int daemon_exec2(const char *dir, const char *prog,
-                 int *read_fd, int *write_fd, int *error_fd, pid_t *pidp, ...) DAEMON_GCC_SENTINEL;
+int daemon_exec(const char * dir, int * ret, const char * prog, ...) DAEMON_GCC_SENTINEL;
+pid_t daemon_exec1(const char * dir, const char * prog, ...) DAEMON_GCC_SENTINEL;
+int daemon_exec2(const char * dir, const char * prog,
+                 int * read_fd, int * write_fd, int * error_fd, pid_t * pidp, ...) DAEMON_GCC_SENTINEL;
 
 
 /** This variable is defined to 1 iff daemon_execv() is supported.*/
 #define DAEMON_EXECV_AVAILABLE 1
 
 /** The same as daemon_exec, but without variadic arguments */
-int daemon_execv(const char *dir, int *ret, const char *prog, va_list ap);
-pid_t daemon_execv1(const char *dir,  const char *prog, va_list ap);
+int daemon_execv(const char * dir, int * ret, const char * prog, va_list ap);
+pid_t daemon_execv1(const char * dir,  const char * prog, va_list ap);
 
 int
-daemon_execva2(const char *dir, const char *prog,
-               int *read_fd, int *write_fd, int *error_fd, pid_t *pidp,
+daemon_execva2(const char * dir, const char * prog,
+               int * read_fd, int * write_fd, int * error_fd, pid_t * pidp,
                va_list ap);
 
 int
-daemon_execv2(const char *dir, const char *prog,
-              int *read_fd, int *write_fd, int *error_fd, pid_t *pidp,
-              char *const argv[]);
+daemon_execv2(const char * dir, const char * prog,
+              int * read_fd, int * write_fd, int * error_fd, pid_t * pidp,
+              char * const argv[]);
 
 #ifdef __cplusplus
 }

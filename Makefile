@@ -25,6 +25,11 @@ clean:
 install: lcd_cpuinfo
 	install -D -o root -g root ./lcd_cpuinfo /usr/local/bin
 
+format:
+	astyle -A2 -p -xg -k2 -W2 *.c *.h
+check:
+	cppcheck --enable=all --inconclusive --std=c11 --suppress=unusedFunction .
+
 #######################
 G_EX = $(shell git describe --tag > /dev/null ; if [ $$? -eq 0 ]; then echo "OK"; else echo "FAIL" ; fi)
 GVER = $(shell git describe --abbrev=7 --long)
