@@ -715,7 +715,7 @@ double haversine_km(double lat1, double long1, double lat2, double long2) {
     return d;
 }
 
-int get_aircrafts() {
+int get_aircrafts(double * md) {
     int last_aircrafts = 0;
     double max_dist = -1.0;
     const nx_json * root = read_and_parse_json("/tmp/dump1090/aircraft.json");
@@ -745,6 +745,9 @@ int get_aircrafts() {
         }
         nx_json_free(root);
     }
+    if (md) {
+        *md = max_dist;
+    }
     return(last_aircrafts);
 }
 
@@ -770,9 +773,9 @@ static void publish_piaware(char * topic_template) {
     time(&timer);
     tm_info = localtime(&timer);
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
-
-    snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Piaware\": {\"Aircraft\": %d, \"Messages\": %.2f}}",
-             tm_buffer, get_aircrafts(), get_mps());
+    double md;
+    snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Piaware\": {\"Aircraft\": %d, \"Messages\": %.2f, \"MaximumDistance\": %.2f}}",
+             tm_buffer, get_aircrafts(&md), get_mps(), md);
 
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     int res;
