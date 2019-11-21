@@ -731,12 +731,14 @@ int get_aircrafts() {
                     if (jlon && jlat) {
                         double lat = jlat->dbl_value;
                         double lon = jlon->dbl_value;
-                        double dist = haversine_km(station_lat, station_lon, lat, lon);
-                        if (dist > max_dist) {
-                            max_dist = dist;
+                        if (lat != 0.0 && lon != 0.0) {
+                            double dist = haversine_km(station_lat, station_lon, lat, lon);
+                            if (dist > max_dist) {
+                                max_dist = dist;
+                            }
+                            const nx_json * jhex = nx_json_get(jaircraft, "hex");
+                            DLOG_DEBUG("%-10s -> %6.2f lat: %2.4f lon: %2.4f", jhex ? jhex->text_value : "unk", dist, lat, lon);
                         }
-                        const nx_json * jhex = nx_json_get(jaircraft, "hex");
-                        DLOG_DEBUG("%-10s -> %5.2f lat: %2.4f lon: %2.4f", jhex ? jhex->text_value : "unk", dist, lat, lon);
                     }
                 }
             }
