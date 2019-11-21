@@ -22,7 +22,6 @@
 #ifndef PATH_MAX
 #define PATH_MAX 512
 #endif
-
 #define VARRUN "/var/run"
 
 const char * daemon_pid_file_ident = NULL;
@@ -132,8 +131,9 @@ pid_t daemon_pid_file_is_running(void) {
         errno = saved_errno;
         goto finish;
     }
-
-    ret = pid;
+    if (ret == (pid_t) - 1) {
+        ret = pid;
+    }
 
 finish:
 
@@ -262,4 +262,3 @@ int daemon_pid_file_remove(void) {
 
     return 0;
 }
-

@@ -74,8 +74,10 @@ int daemon_signal_init(int s, ...) {
     va_list ap;
     va_start(ap, s);
 
-    if (_init() < 0)
+    if (_init() < 0) {
+        va_end(ap);
         return -1;
+    }
 
     sig = s;
     while (sig > 0) {

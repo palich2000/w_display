@@ -102,7 +102,7 @@ int daemon_retval_wait(int timeout);
  * integer to pass to daemon_retval_wait() in the parent process
  * @return Zero on success, nonzero on failure.
  */
-int daemon_retval_send(int s);
+int daemon_retval_send(int i);
 
 /** Close all file descriptors except those passed. List needs to be
  * terminated by -1. FDs 0, 1, 2 will be kept open anyway. */

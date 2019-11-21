@@ -78,7 +78,7 @@ daemon_execva2(const char * dir, const char * prog,
 int
 daemon_execv2(const char * dir, const char * prog,
               int * read_fd, int * write_fd, int * error_fd, pid_t * pidp,
-              char * const argv[]);
+              char * const args[]);
 
 #ifdef __cplusplus
 }

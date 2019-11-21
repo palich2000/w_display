@@ -21,21 +21,21 @@ int extract_zip(const char * zip_archive_filename, const char * dst_folder) {
 
 
     if ((!zip_archive_filename) || (!dst_folder)) {
-        daemon_log(LOG_ERR, "Error: zip file name or dst folder is empty");
+        DLOG_ERR("Error: zip file name or dst folder is empty");
         return -1;
     }
 
 
     if (stat(dst_folder, &st) == -1) {
         if (mkdir(dst_folder, 0700)) {
-            daemon_log(LOG_ERR, "Error: can't create destination dir %s : %s", dst_folder, strerror(errno));
+            DLOG_ERR("Error: can't create destination dir %s : %s", dst_folder, strerror(errno));
             return -1;
         }
     }
 
     zip_file = zip_open(zip_archive_filename, 0, &err);
     if (!zip_file) {
-        daemon_log(LOG_ERR, "Error: can't open file %s", zip_archive_filename);
+        DLOG_ERR("Error: can't open file %s", zip_archive_filename);
         return -1;
     };
 
@@ -43,12 +43,12 @@ int extract_zip(const char * zip_archive_filename, const char * dst_folder) {
 
     bool write_error = false;
 
-    for (int zip_fil_num = 0; ((zip_fil_num < files_total) & !write_error) ; zip_fil_num++) {
+    for (int zip_fil_num = 0; ((zip_fil_num < files_total) && !write_error) ; zip_fil_num++) {
         struct zip_stat zs;
         if (zip_stat_index(zip_file, zip_fil_num, 0, &zs) == 0) {
             file_in_zip = zip_fopen_index(zip_file, zip_fil_num, 0);
             if (file_in_zip) {
-                daemon_log(LOG_INFO, "extract %s ", zs.name);
+                DLOG_INFO("extract %s ", zs.name);
                 char dst_file_name[255] = {};
                 snprintf(dst_file_name, sizeof(dst_file_name) - 1, "%s/%s", dst_folder, zs.name);
                 int fd = open(dst_file_name, O_RDWR | O_CREAT | O_TRUNC);
@@ -56,7 +56,7 @@ int extract_zip(const char * zip_archive_filename, const char * dst_folder) {
                     while ( (r = zip_fread(file_in_zip, buffer, sizeof(buffer))) > 0) {
 
                         if (write(fd, buffer, r) != r) {
-                            daemon_log(LOG_ERR, "write file %s error %s", dst_file_name, strerror(errno));
+                            DLOG_ERR("write file %s error %s", dst_file_name, strerror(errno));
                             write_error = true;
                             break;
                         }
@@ -66,11 +66,11 @@ int extract_zip(const char * zip_archive_filename, const char * dst_folder) {
                         unlink(dst_file_name);
                     }
                 } else {
-                    daemon_log(LOG_ERR, "write create %s error %s", dst_file_name, strerror(errno));
+                    DLOG_ERR("write create %s error %s", dst_file_name, strerror(errno));
                 }
                 zip_fclose(file_in_zip);
             } else {
-                daemon_log(LOG_ERR, "Error: can't open file %s in zip", zs.name);
+                DLOG_ERR("Error: can't open file %s in zip", zs.name);
             }
         }
     }

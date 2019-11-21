@@ -373,7 +373,6 @@ int daemon_close_all(int except_fd, ...) {
 /** Same as daemon_close_all but takes an array of fds, terminated by -1 */
 int daemon_close_allv(const int except_fds[]) {
     struct rlimit rl;
-    int fd;
 
 #ifdef __linux__
 
@@ -435,7 +434,7 @@ int daemon_close_allv(const int except_fds[]) {
     if (getrlimit(RLIMIT_NOFILE, &rl) < 0)
         return -1;
 
-    for (fd = 0; fd < (int) rl.rlim_max; fd++) {
+    for (int fd = 0; fd < (int) rl.rlim_max; fd++) {
         int i;
 
         if (fd <= 3)

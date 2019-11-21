@@ -34,8 +34,9 @@
 #include <regex.h>
 #include <sys/reboot.h>
 #include <sys/mman.h>
-
 #include <math.h>
+#include <getopt.h>
+
 #include "dpid.h"
 #include "dmem.h"
 #include "dlog.h"
@@ -57,6 +58,7 @@ char * hostname = NULL;
 char * pathname = NULL;
 const char * const application = "lcd_cpuinfo";
 static int do_exit = 0;
+#define d2r (M_PI / 180.0)
 //------------------------------------------------------------------------------------------------------------
 //
 // LCD:
@@ -77,6 +79,8 @@ static int no_display = 0;
 static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
 
 static int lcdHandle  = 0;
+double station_lon = 50.371;
+double station_lat = 30.389;
 
 //
 // DispMode
@@ -700,20 +704,48 @@ double get_mps() {
     return(last_mps);
 }
 
+//calculate haversine distance for linear distance
+double haversine_km(double lat1, double long1, double lat2, double long2) {
+    double dlong = (long2 - long1) * d2r;
+    double dlat = (lat2 - lat1) * d2r;
+    double a = pow(sin(dlat / 2.0), 2) + cos(lat1 * d2r) * cos(lat2 * d2r) * pow(sin(dlong / 2.0), 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    double d = 6367 * c;
+
+    return d;
+}
+
 int get_aircrafts() {
     int last_aircrafts = 0;
+    double max_dist = -1.0;
     const nx_json * root = read_and_parse_json("/tmp/dump1090/aircraft.json");
     if (root) {
         const nx_json * json = nx_json_get(root, "aircraft");
         if ((json) && (json->type == NX_JSON_ARRAY)) {
             last_aircrafts = json->length;
-            for ( int i =0; i < last_aircrafts; i++ ) {
-		//json->
-	    }
+            if (json->type == NX_JSON_ARRAY) {
+                for ( int i = 0; i < last_aircrafts; i++ ) {
+                    const nx_json * aircraft = nx_json_item(json, i);
+                    if (aircraft) {
+                        const nx_json * jlat =  nx_json_get(aircraft, "lat");
+                        const nx_json * jlon =  nx_json_get(aircraft, "lon");
+                        if (jlon && jlat) {
+                            double lat = jlat->dbl_value;
+                            double lon = jlon->dbl_value;
+                            double dist = haversine_km(station_lat, station_lon, lat, lon);
+                            if (dist > max_dist) {
+                                max_dist = dist;
+                                const nx_json * jhex = nx_json_get(aircraft, "hex");
+                                DLOG_DEBUG("%-10s -> %5.2f", jhex ? jhex->text_value : "unk", dist);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 //"lat": 53.108322,
 //"lon": 33.195033
-        }
-        nx_json_free(json);
+        nx_json_free(root);
     }
     return(last_aircrafts);
 }
@@ -1264,7 +1296,23 @@ main (int argc, char * const * argv) {
     daemon_log_upto(LOG_INFO);
     daemon_log(LOG_INFO, "%s %s", pathname, progname);
 
-    while ((flags = getopt(argc, argv, "i:fdk:h:p:u:P:R:VDA")) != -1) {
+    static
+    struct option long_options[] = {
+        {"command",                     required_argument,  0, 'k'},
+        {"ident",                       required_argument,  0, 'i'},
+        {"foreground",                  no_argument,        0, 'f'},
+        {"debug",                       no_argument,        0, 'd'},
+        {"mqtt-host",                   required_argument,  0, 'h'},
+        {"mqtt-port",                   required_argument,  0, 'p'},
+        {"mqtt-user",                   required_argument,  0, 'u'},
+        {"mqtt-password",               required_argument,  0, 'P'},
+        {"lat",                         required_argument,  0, 'l'},
+        {"lon",                         required_argument,  0, 'L'},
+        {0, 0, 0, 0}
+    };
+
+
+    while ((flags = getopt_long(argc, argv, "i:fdk:h:p:u:P:R:VDAl:L:", long_options, NULL)) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -1314,6 +1362,26 @@ main (int argc, char * const * argv) {
         }
         case 'h': {
             mqtt_host = xstrdup(optarg);
+            break;
+        }
+        case 'l': {
+            char * tmp_s;
+            double tmp = strtod(optarg, &tmp_s);
+            if (tmp_s != optarg) {
+                station_lat = tmp;
+            } else {
+                usage();
+            }
+            break;
+        }
+        case 'L': {
+            char * tmp_s;
+            double tmp = strtod(optarg, &tmp_s);
+            if (tmp_s != optarg) {
+                station_lon = tmp;
+            } else {
+                usage();
+            }
             break;
         }
         default: {
