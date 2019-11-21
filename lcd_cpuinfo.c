@@ -734,8 +734,8 @@ int get_aircrafts() {
                         double dist = haversine_km(station_lat, station_lon, lat, lon);
                         if (dist > max_dist) {
                             max_dist = dist;
-                            const nx_json * jhex = nx_json_get(jaircraft, "hex");
                         }
+                        const nx_json * jhex = nx_json_get(jaircraft, "hex");
                         DLOG_DEBUG("%-10s -> %5.2f", jhex ? jhex->text_value : "unk", dist);
                     }
                 }
