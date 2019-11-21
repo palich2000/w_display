@@ -707,6 +707,11 @@ int get_aircrafts() {
         const nx_json * json = nx_json_get(root, "aircraft");
         if ((json) && (json->type == NX_JSON_ARRAY)) {
             last_aircrafts = json->length;
+            for ( int i =0; i < last_aircrafts; i++ ) {
+		//json->
+	    }
+//"lat": 53.108322,
+//"lon": 33.195033
         }
         nx_json_free(json);
     }
