@@ -736,7 +736,7 @@ int get_aircrafts() {
                             max_dist = dist;
                         }
                         const nx_json * jhex = nx_json_get(jaircraft, "hex");
-                        DLOG_DEBUG("%-10s -> %5.2f", jhex ? jhex->text_value : "unk", dist);
+                        DLOG_DEBUG("%-10s -> %5.2f lat: %2.4f lon: %2.4f", jhex ? jhex->text_value : "unk", dist, lat, lon);
                     }
                 }
             }
