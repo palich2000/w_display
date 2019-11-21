@@ -720,31 +720,27 @@ int get_aircrafts() {
     double max_dist = -1.0;
     const nx_json * root = read_and_parse_json("/tmp/dump1090/aircraft.json");
     if (root) {
-        const nx_json * json = nx_json_get(root, "aircraft");
-        if ((json) && (json->type == NX_JSON_ARRAY)) {
-            last_aircrafts = json->length;
-            if (json->type == NX_JSON_ARRAY) {
-                for ( int i = 0; i < last_aircrafts; i++ ) {
-                    const nx_json * aircraft = nx_json_item(json, i);
-                    if (aircraft) {
-                        const nx_json * jlat =  nx_json_get(aircraft, "lat");
-                        const nx_json * jlon =  nx_json_get(aircraft, "lon");
-                        if (jlon && jlat) {
-                            double lat = jlat->dbl_value;
-                            double lon = jlon->dbl_value;
-                            double dist = haversine_km(station_lat, station_lon, lat, lon);
-                            if (dist > max_dist) {
-                                max_dist = dist;
-                                const nx_json * jhex = nx_json_get(aircraft, "hex");
-                                DLOG_DEBUG("%-10s -> %5.2f", jhex ? jhex->text_value : "unk", dist);
-                            }
+        const nx_json * jaircrafts = nx_json_get(root, "aircraft");
+        if ((jaircrafts) && (jaircrafts->type == NX_JSON_ARRAY)) {
+            last_aircrafts = jaircrafts->length;
+            for ( int i = 0; i < last_aircrafts; i++ ) {
+                const nx_json * jaircraft = nx_json_item(jaircrafts, i);
+                if (jaircraft) {
+                    const nx_json * jlat =  nx_json_get(jaircraft, "lat");
+                    const nx_json * jlon =  nx_json_get(jaircraft, "lon");
+                    if (jlon && jlat) {
+                        double lat = jlat->dbl_value;
+                        double lon = jlon->dbl_value;
+                        double dist = haversine_km(station_lat, station_lon, lat, lon);
+                        if (dist > max_dist) {
+                            max_dist = dist;
+                            const nx_json * jhex = nx_json_get(jaircraft, "hex");
                         }
+                        DLOG_DEBUG("%-10s -> %5.2f", jhex ? jhex->text_value : "unk", dist);
                     }
                 }
             }
         }
-//"lat": 53.108322,
-//"lon": 33.195033
         nx_json_free(root);
     }
     return(last_aircrafts);
