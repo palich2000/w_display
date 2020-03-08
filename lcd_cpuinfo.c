@@ -1111,6 +1111,7 @@ void * mosq_thread_loop(void * p) {
             int res = mosquitto_connect(mosq, mqtt_host, mqtt_port, mqtt_keepalive);
             if (res) {
                 daemon_log(LOG_ERR, "Can't connect to Mosquitto server %s", mosquitto_strerror(res));
+                sleep(30);
             }
             break;
         }
