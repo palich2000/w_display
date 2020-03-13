@@ -1475,7 +1475,9 @@ main (int argc, char * const * argv) {
         }
         main_pid = syscall(SYS_gettid);
 
-        wiringPiSetup ();
+        if (!no_weather || !no_display) {
+           wiringPiSetup ();
+        }
 
         if (lcd_and_buttons_init() < 0) {
             daemon_log(LOG_ERR, "%s: DISPLAY Init failed", __func__);
