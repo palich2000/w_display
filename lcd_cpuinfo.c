@@ -508,8 +508,6 @@ static void get_weather_from_json(weather_t * weather, char * txt_json) {
     }
 }
 
-//"home/%s/weather/%s"
-
 __attribute__ ((unused)) static void publist_weather_topic(char * template, char * location, char * name, double value) {
     char topic[256];
     sprintf(topic, template, location, name);
@@ -537,12 +535,23 @@ static char * sensor_print(char * buffer, const sensor_t * sensor) {
     return buffer;
 }
 
+#define MQTT_LWT_TOPIC "tele/%s/LWT"
+#define MQTT_SENSOR_TOPIC "tele/%s/SENSOR"
+#define MQTT_STATE_TOPIC "tele/%s/STATE"
+#define MQTT_PIAWARE_TOPIC "tele/%s/PIAWARE"
+
+const char * create_topic(const char * template) {
+    static __thread char buf[255] = {};
+    snprintf(buf, sizeof(buf) - 1, template, hostname);
+    return buf;
+}
+
 #define WEATHER_INT 0
 #define WEATHER_EXT 1
 #define WEATHER_COUNT 2
 weather_t * weather[WEATHER_COUNT] = {};
 
-static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
+static void publish_sensors(weather_t * cur_weather[]) {
     if (no_weather) {
         return;
     }
@@ -552,14 +561,13 @@ static void publish_sensors(weather_t * cur_weather[], char * topic_template) {
         timer_publish_state = millis () + SENSORS_PUBLISH_INTERVAL;
     }
 
-    char topic[128] = {};
-    snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
+    const char *topic = create_topic(MQTT_SENSOR_TOPIC);
 
     time_t timer;
     char tm_buffer[26] = {};
     char buf[1024] = {};
     struct tm * tm_info;
-    //struct sysinfo info;
+
     int res;
 
     time(&timer);
@@ -751,7 +759,7 @@ int get_aircrafts(double * md) {
     return(last_aircrafts);
 }
 
-static void publish_piaware(char * topic_template) {
+static void publish_piaware(void) {
     if (no_aircraft) {
         return;
     }
@@ -762,8 +770,7 @@ static void publish_piaware(char * topic_template) {
         timer_publish_state = millis () + PIAWARE_PUBLISH_INTERVAL;
     }
 
-    char topic[128] = {};
-    snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
+    const char *topic =  create_topic(MQTT_STATE_TOPIC);
 
     time_t timer;
     char tm_buffer[26] = {};
@@ -783,8 +790,20 @@ static void publish_piaware(char * topic_template) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
+#define ONLINE "Online"
+#define OFFLINE "Offline"
 
-static void publish_state(char * topic_template) {
+void mqtt_publish_lwt(bool online) {
+    const char * msg = online ? ONLINE : OFFLINE ;
+    int res;
+    const char * topic = create_topic(MQTT_LWT_TOPIC);
+    daemon_log(LOG_INFO,"publish %s: %s", topic, msg);
+    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (msg), msg, 0, true)) != 0) {
+        DLOG_ERR("Can't publish to Mosquitto server %s", mosquitto_strerror(res));
+    }
+}
+
+static void publish_state(void) {
 
     static int timer_publish_state = 0;
 
@@ -796,7 +815,6 @@ static void publish_state(char * topic_template) {
     time_t timer;
     char tm_buffer[26] = {};
     char buf[255] = {};
-    char topic[128] = {};
     struct tm * tm_info;
     struct sysinfo info;
     int res;
@@ -816,11 +834,11 @@ static void publish_state(char * topic_template) {
             close(fd);
         }
         int temp_C = atoi(buf) / 1000;
+        const char *topic = create_topic(MQTT_STATE_TOPIC);
 
 
         snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
                  tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
-        snprintf(topic, sizeof(topic) - 1, topic_template, hostname);
         daemon_log(LOG_INFO, "%s %s", topic, buf);
         if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
@@ -1033,6 +1051,8 @@ void on_connect(struct mosquitto * m, void * udata, int res) {
     switch (res) {
     case 0:
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
+        mqtt_publish_lwt(true);
+        publish_state();
         break;
     case 1:
         DLOG_ERR("Connection refused (unacceptable protocol version).");
@@ -1162,7 +1182,7 @@ void mosq_init() {
         mosquitto_message_callback_set(mosq, on_message);
 
         mosquitto_username_pw_set (mosq, mqtt_username, mqtt_password);
-
+        mosquitto_will_set(mosq, create_topic(MQTT_LWT_TOPIC), strlen(OFFLINE), OFFLINE, 0, true);
         daemon_log(LOG_INFO, "Try connect to Mosquitto server as %s", tmp);
         int res = mosquitto_connect (mosq, mqtt_host, mqtt_port, mqtt_keepalive);
         if (res) {
@@ -1231,9 +1251,9 @@ void * main_loop (void * p) {
 
         timer = millis () + LCD_UPDATE_PERIOD;
         get_weather_info(weather);
-        publish_sensors(weather, "tele/%s/SENSOR");
-        publish_state("tele/%s/STATE");
-        publish_piaware("tele/%s/PIAWARE");
+        publish_sensors(weather);
+        publish_state();
+        publish_piaware();
         lcd_update();
     }
     weather_free(&weather[WEATHER_EXT]);
@@ -1574,6 +1594,7 @@ main (int argc, char * const * argv) {
     }
 
 finish:
+    mqtt_publish_lwt(false);
     daemon_log(LOG_INFO, "Exiting...");
     regfree(&mqtt_topic_regex);
     mosq_destroy();
