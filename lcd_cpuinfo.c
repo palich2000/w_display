@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <limits.h>
 
 #include <ifaddrs.h>
 #include <sys/socket.h>
@@ -19,10 +20,6 @@
 #include <net/if.h>
 #include <arpa/inet.h>
 
-#include <wiringPi.h>
-#include <wiringPiI2C.h>
-#include <wiringSerial.h>
-#include <lcd.h>
 #include <mosquitto.h>
 #include <signal.h>
 #include <pthread.h>
@@ -45,7 +42,7 @@
 #include "version.h"
 #include "nxjson.h"
 #include "array.h"
-
+#include "CharLCD.h"
 //------------------------------------------------------------------------------------------------------------
 //
 // Global handle Define
@@ -64,21 +61,27 @@ static int do_exit = 0;
 // LCD:
 //
 //------------------------------------------------------------------------------------------------------------
-#define LCD_ROW             2   // 16 Char
-#define LCD_COL             16  // 2 Line
-#define LCD_BUS             4   // Interface 4 Bit mode
-#define LCD_UPDATE_PERIOD   1000 // 1 sec
-#define LCD_AUTO_SW_TIMEOUT 5000 // 5 sec
-#define STATE_PUBLISH_INTERVAL 60000 // 60 sec
+#define LCD_ROW             2       // 16 Char
+#define LCD_COL             16      // 2 Line
+#define LCD_BUS             1       // i2c bus
+#define LCD_UPDATE_PERIOD   2000    // 1 sec
+#define LCD_AUTO_SW_TIMEOUT 10000    // 10 sec
+#define STATE_PUBLISH_INTERVAL 60000   // 60 sec
 #define SENSORS_PUBLISH_INTERVAL 60000 // 60 sec
 #define PIAWARE_PUBLISH_INTERVAL 60000 // 60 sec
 
 static int no_aircraft = 1;
 static int no_weather = 0;
 static int no_display = 0;
-static unsigned char lcdFb[LCD_ROW][LCD_COL] = {0, };
+static char lcdFb[LCD_ROW][LCD_COL+1] = {0};
+static char lcdFbTD[LCD_ROW][LCD_COL+1] = {0};
 
-static int lcdHandle  = 0;
+void fill_lcdFb(void) {
+    memset(&lcdFb[0][0],' ',LCD_COL); lcdFb[0][LCD_COL] = 0;
+    memset(&lcdFb[1][0],' ',LCD_COL); lcdFb[1][LCD_COL] = 0;
+}
+
+static CharLCD_t *lcd = NULL;
 double station_lat = 50.371;
 double station_lon = 30.389;
 
@@ -89,21 +92,6 @@ double station_lon = 30.389;
 //
 #define MAX_DISP_MODE 5
 static int DispMode = 1;
-
-#define PORT_LCD_RS     7   // GPX1.2(#18)
-#define PORT_LCD_E      0   // GPA0.3(#174)
-#define PORT_LCD_D4     2   // GPX1.5(#21)
-#define PORT_LCD_D5     3   // GPX1.6(#22)
-#define PORT_LCD_D6     1   // GPA0.2(#173)
-#define PORT_LCD_D7     4   // GPX1.3(#19)
-
-//------------------------------------------------------------------------------------------------------------
-//
-// Button:
-//
-//------------------------------------------------------------------------------------------------------------
-#define PORT_BUTTON1    5   // GPX1.7(#23)
-#define PORT_BUTTON2    6   // GPX2.0(#24)
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -125,23 +113,6 @@ int mqtt_keepalive = 60;
 static struct mosquitto * mosq = NULL;
 static t_client_info client_info;
 static pthread_t mosq_th = 0;
-
-//------------------------------------------------------------------------------------------------------------
-//
-// LED:
-//
-//------------------------------------------------------------------------------------------------------------
-
-const int ledPorts[] = {
-    21, // GPX2.4(#28)
-    22, // GPX2.6(#30)
-    23, // GPX2.7(#31)
-    11, // GPX2.1(#25)
-    26, // GPX2.5(#29)
-    27, // GPX3.1(#33)
-};
-
-#define MAX_LED_CNT sizeof(ledPorts) / sizeof(ledPorts[0])
 
 void publish_double(char *, double);
 
@@ -214,12 +185,18 @@ int restart_callback(void * UNUSED(param)) {
     return(0);
 }
 
-DAEMON_COMMAND_T daemon_commands[] = {
-    {command_name: "reconfigure", command_callback: reconfigure_callback, command_int: CMD_RECONFIGURE},
-    {command_name: "shutdown", command_callback: shutdown_callback, command_int: CMD_SHUTDOWN},
-    {command_name: "restart", command_callback: restart_callback, command_int: CMD_RESTART},
-    {command_name: "check", command_callback: check_callback, command_int: CMD_CHECK},
+const DAEMON_COMMAND_T daemon_commands[] = {
+    {.command_name= "reconfigure", .command_callback= reconfigure_callback, .command_int= CMD_RECONFIGURE},
+    {.command_name= "shutdown",    .command_callback= shutdown_callback,    .command_int= CMD_SHUTDOWN},
+    {.command_name= "restart",     .command_callback= restart_callback,     .command_int= CMD_RESTART},
+    {.command_name= "check",       .command_callback= check_callback,       .command_int= CMD_CHECK},
 };
+
+long timeMillis(void) {
+  struct timeval time;
+  gettimeofday(&time, NULL);
+  return time.tv_sec * 1000 + time.tv_usec / 1000;
+}
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -229,10 +206,10 @@ DAEMON_COMMAND_T daemon_commands[] = {
 #define FD_LITTLECORE_FREQ "/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"
 
 static void get_littlecore_freq(void) {
-    int     n, fd, freq;
-    char    buf[LCD_COL + 1];
+    int     fd, freq;
+    char    buf[LCD_COL + 1] = {0};
 
-    memset(buf, ' ', sizeof(buf));
+    fill_lcdFb();
 
     if((fd = open(FD_LITTLECORE_FREQ, O_RDONLY)) < 0)   {
         daemon_log(LOG_ERR, "%s : file open error!", __func__);
@@ -240,10 +217,10 @@ static void get_littlecore_freq(void) {
         read(fd, buf, sizeof(buf));
         close(fd);
         freq = atoi(buf);
-        n = sprintf(buf, "Little-Core Freq");
-        strncpy((char *)&lcdFb[0][0], buf, n);
+        int n = sprintf(buf, "Little-Core Freq");
+        memmove(&lcdFb[0][0], buf, (size_t)n);
         n = sprintf(buf, "%d Mhz", freq / 1000);
-        strncpy((char *)&lcdFb[1][4], buf, n);
+        memmove(&lcdFb[1][4], buf, (size_t)n);
     }
 }
 
@@ -254,11 +231,9 @@ static void get_littlecore_freq(void) {
 //------------------------------------------------------------------------------------------------------------
 static void get_ethernet_ip(void) {
     struct  ifaddrs * ifa;
-    int     n;
-    char    buf[LCD_COL];
+    char    buf[LCD_COL] = {};
 
-    memset(buf, ' ', sizeof(buf));
-
+    fill_lcdFb();
     getifaddrs(&ifa);
 
     while(ifa)  {
@@ -266,17 +241,18 @@ static void get_ethernet_ip(void) {
             struct sockaddr_in * pAddr = (struct sockaddr_in *)ifa->ifa_addr;
 
             if(0 == strncmp(ifa->ifa_name, "eth", 2)) {
-                n = sprintf(buf, "My IP Addr(%s)", ifa->ifa_name);
-                strncpy((char *)&lcdFb[0][0], buf, n);
+                int n = sprintf(buf, "My IP Addr(%s)", ifa->ifa_name);
+                memmove((char *)&lcdFb[0][0], buf, (size_t)n);
 
                 n = sprintf(buf, "%s", inet_ntoa(pAddr->sin_addr));
-                strncpy((char *)&lcdFb[1][1], buf, n);
+                memmove((char *)&lcdFb[1][1], buf, (size_t)n);
             }
         }
         ifa = ifa->ifa_next;
     }
     freeifaddrs(ifa);
 }
+
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -286,18 +262,18 @@ static void get_ethernet_ip(void) {
 static void get_date_time(void) {
     time_t      tm_time;
     struct tm  * st_time;
-    char        buf[LCD_COL];
-    int         n;
+    char        buf[LCD_COL] = {};
 
-    memset(buf, ' ', sizeof(buf));
+    fill_lcdFb();
 
     time(&tm_time);
-    st_time = localtime( &tm_time);
+    st_time = localtime(&tm_time);
 
-    n = strftime(buf, LCD_COL, "%Y/%m/%d %a", st_time);
-    strncpy((char *)&lcdFb[0][0], buf, n);
-    n = strftime(buf, LCD_COL, "%H:%M:%S %p", st_time);
-    strncpy((char *)&lcdFb[1][2], buf, n);
+    size_t n = strftime(buf, LCD_COL, "%Y/%m/%d %a", st_time);
+    memmove(&lcdFb[0][0], buf, n);
+
+    n = strftime(buf, LCD_COL, "%H:%M %p", st_time);
+    memmove(&lcdFb[1][4], buf, n);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -308,10 +284,10 @@ static void get_date_time(void) {
 #define FD_SYSTEM_TEMP  "/sys/class/thermal/thermal_zone0/temp"
 
 static void get_cpu_temperature(void) {
-    int     fd, temp_C, temp_F, n;
-    char    buf[LCD_COL + 1];
+    int     fd, temp_C, temp_F;
+    char    buf[LCD_COL + 1] = {0};
 
-    memset(buf, ' ', sizeof(buf));
+    fill_lcdFb();
 
     if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
         daemon_log(LOG_ERR, "%s : file open error!", __func__);
@@ -322,10 +298,10 @@ static void get_cpu_temperature(void) {
         temp_C = atoi(buf) / 1000;
         temp_F = (temp_C * 18 + 320) / 10;
 
-        n = sprintf(buf, "CPU Temperature");
-        strncpy((char *)&lcdFb[0][0], buf, n);
+        int n = sprintf(buf, "CPU Temperature");
+        memmove((char *)&lcdFb[0][0], buf, (size_t)n);
         n = sprintf(buf, "%3d *C, %3d.%1d *F", temp_C, temp_F, temp_F % 10);
-        strncpy((char *)&lcdFb[1][0], buf, n);
+        memmove((char *)&lcdFb[1][0], buf, (size_t)n);
     }
 }
 
@@ -345,15 +321,15 @@ static char * get_last_line_from_file(char * filename) {
     FILE * fp = fopen(filename, "r");
 
     if (fp == NULL) {
-        daemon_log(LOG_ERR, "%s : file open error!", __func__);
+        daemon_log(LOG_ERR, "%s : file %s open error!", __func__, filename);
         return(ret);
     }
 
-    fseek(fp, -(BUF_SIZE + 1), SEEK_END);
-    int len = fread(buffer, 1, BUF_SIZE, fp);
+    fseek(fp, -(BUF_SIZE), SEEK_END);
+    size_t len = fread(buffer, 1, BUF_SIZE, fp);
     if (len > 0) {
         int pos[2] = { -1, -1};
-        int i = len - 1;
+        int i = (int)len - 1;
         int p = 0;
         while ((i >= 0) && (p < 2)) {
             if (buffer[i] == '\n') {
@@ -364,11 +340,11 @@ static char * get_last_line_from_file(char * filename) {
         }
         if ((pos[0] != -1) && (pos[1] != -1)) {
             int l = pos[0] - pos[1];
-            ret = calloc(1, l);
-            memmove(ret, &buffer[pos[1] + 1], l - 1);
+            ret = calloc(1, (size_t)l);
+            memmove(ret, &buffer[pos[1] + 1], (size_t)(l - 1));
         }
     } else {
-        daemon_log(LOG_ERR, "%s : file read error!", __func__);
+        daemon_log(LOG_ERR, "%s : file %s read error!", __func__, filename);
     }
     fclose(fp);
     return(ret);
@@ -519,7 +495,7 @@ static char * sensor_print(char * buffer, const sensor_t * sensor) {
     switch (sensor->sensor_type) {
     case s_numeric:
         sprintf(eb_buf, "\"%s\": %.4f", sensor->name, sensor->value_d);
-        int l = strlen(eb_buf);
+        size_t l = strlen(eb_buf);
         char * tmp = eb_buf + l - 1;
         while ((*tmp == '0') && (tmp > eb_buf + 1)) {
             *tmp = 0;
@@ -541,7 +517,7 @@ static char * sensor_print(char * buffer, const sensor_t * sensor) {
 #define MQTT_PIAWARE_TOPIC "tele/%s/PIAWARE"
 
 const char * create_topic(const char * template) {
-    static __thread char buf[255] = {};
+    static __thread char buf[255] = {0};
     snprintf(buf, sizeof(buf) - 1, template, hostname);
     return buf;
 }
@@ -549,23 +525,23 @@ const char * create_topic(const char * template) {
 #define WEATHER_INT 0
 #define WEATHER_EXT 1
 #define WEATHER_COUNT 2
-weather_t * weather[WEATHER_COUNT] = {};
+weather_t * weather[WEATHER_COUNT] = {0};
 
-static void publish_sensors(weather_t * cur_weather[]) {
+void publish_sensors(weather_t * cur_weather[]) {
     if (no_weather) {
         return;
     }
     static int timer_publish_state = 0;
-    if (timer_publish_state >  millis()) return;
+    if (timer_publish_state >  timeMillis()) return;
     else {
-        timer_publish_state = millis () + SENSORS_PUBLISH_INTERVAL;
+        timer_publish_state = timeMillis() + SENSORS_PUBLISH_INTERVAL;
     }
 
     const char *topic = create_topic(MQTT_SENSOR_TOPIC);
 
     time_t timer;
-    char tm_buffer[26] = {};
-    char buf[1024] = {};
+    char tm_buffer[26] = {0};
+    char buf[1024] = {0};
     struct tm * tm_info;
 
     int res;
@@ -579,22 +555,28 @@ static void publish_sensors(weather_t * cur_weather[]) {
     strcat(buf, "\",");
 
     for (int w = 0; w < WEATHER_COUNT; w++) {
-        strcat(strcat(strcat(buf, "\""), cur_weather[w]->location), "\":{");
+        char wbuf[512]="";
+        int c = 0;
+        strcat(strcat(strcat(wbuf, "\""), cur_weather[w]->location), "\":{");
         array_for_each(cur_weather[w]->sensors, i) {
             sensor_t * sensor = array_getitem(cur_weather[w]->sensors, i);
-            sensor_print(buf, sensor);
-            strcat(buf, ",");
+            sensor_print(wbuf, sensor);
+            strcat(wbuf, ",");
+            c++;
         }
-        buf[strlen(buf) - 1] = 0;
-        strcat(buf, "},");
+        wbuf[strlen(wbuf) - 1] = 0;
+        strcat(wbuf, "},");
+        if (c) {
+           strcat(buf, wbuf);
+        }
     }
-    int l = strlen(buf);
+    size_t l = strlen(buf);
     if (l > 1) {
         buf[strlen(buf) - 1] = 0;
     }
     strcat(buf, "}");
     daemon_log(LOG_INFO, "%s %s", topic, buf);
-    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+    if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen (buf), buf, 0, false)) != 0) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
@@ -667,14 +649,14 @@ const nx_json * read_and_parse_json(char * filename) {
     }
     struct stat s;
     if (!fstat (fd, &s)) {
-        size_t size = s.st_size;
-        char * f = (char *) mmap (0, size, PROT_READ, MAP_PRIVATE, fd, 0);
+        long int size = s.st_size;
+        char * f = (char *) mmap (0, (size_t)size, PROT_READ, MAP_PRIVATE, fd, 0);
         if (f) {
-            json = nx_json_parse_utf8(strndupa(f, size));
+            json = nx_json_parse_utf8(strndupa(f, (size_t)size));
             if (!json) {
                 daemon_log(LOG_ERR, "Unable to parse json from file %s %.*s", filename, (int)size, f);
             }
-            munmap(f, size);
+            munmap(f, (size_t)size);
         }
     } else {
         daemon_log(LOG_ERR, "Unable to stat file %s (%d) %s", filename, errno, strerror(errno));
@@ -759,15 +741,15 @@ int get_aircrafts(double * md) {
     return(last_aircrafts);
 }
 
-static void publish_piaware(void) {
+void publish_piaware(void) {
     if (no_aircraft) {
         return;
     }
     static int timer_publish_state = 0;
 
-    if (timer_publish_state >  millis()) return;
+    if (timer_publish_state >  timeMillis()) return;
     else {
-        timer_publish_state = millis () + PIAWARE_PUBLISH_INTERVAL;
+        timer_publish_state = timeMillis() + PIAWARE_PUBLISH_INTERVAL;
     }
 
     const char *topic =  create_topic(MQTT_STATE_TOPIC);
@@ -786,7 +768,7 @@ static void publish_piaware(void) {
 
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     int res;
-    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+    if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
         daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
@@ -798,7 +780,7 @@ void mqtt_publish_lwt(bool online) {
     int res;
     const char * topic = create_topic(MQTT_LWT_TOPIC);
     daemon_log(LOG_INFO,"publish %s: %s", topic, msg);
-    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (msg), msg, 0, true)) != 0) {
+    if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(msg), msg, 0, true)) != 0) {
         DLOG_ERR("Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
 }
@@ -807,9 +789,9 @@ static void publish_state(void) {
 
     static int timer_publish_state = 0;
 
-    if (timer_publish_state >  millis()) return;
+    if (timer_publish_state >  timeMillis()) return;
     else {
-        timer_publish_state = millis () + STATE_PUBLISH_INTERVAL;
+        timer_publish_state = timeMillis() + STATE_PUBLISH_INTERVAL;
     }
 
     time_t timer;
@@ -840,7 +822,7 @@ static void publish_state(void) {
         snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
                  tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
         daemon_log(LOG_INFO, "%s %s", topic, buf);
-        if ((res = mosquitto_publish (mosq, NULL, topic, strlen (buf), buf, 0, false)) != 0) {
+        if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
         }
     }
@@ -848,7 +830,7 @@ static void publish_state(void) {
 
 
 
-static void get_weather_info(weather_t * weather[]) {
+void get_weather_info(weather_t * weather[]) {
 
     char * txt_json;
     if (no_weather) {
@@ -870,20 +852,22 @@ static void get_weather_info(weather_t * weather[]) {
 }
 
 static void display_weather_info(weather_t * weather[]) {
-    char    buf[LCD_COL];
+    char    buf[LCD_COL + 1];
     int     n;
-    memset(buf, ' ', sizeof(buf));
+    memset(buf, 0, sizeof(buf));
+    fill_lcdFb();
+
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
-    strncpy((char *)&lcdFb[0][0], buf, n);
+    memmove((char *)&lcdFb[0][0], buf, (size_t)n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
                  weather[WEATHER_EXT]->location,
                  sensor_value_d_by_name(weather[WEATHER_EXT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_EXT], "humidity")),
                  roundf(0.750062 * sensor_value_d_by_name(weather[WEATHER_INT], "pressure")));
-    strncpy((char *)&lcdFb[1][0], buf, n);
+    memmove((char *)&lcdFb[1][0], buf, (size_t)n);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -897,13 +881,13 @@ static char * mqtt_display2 = NULL;
 static void get_mqqt_last_event(void) {
     char    buf[LCD_COL];
     int     n;
-    memset(buf, ' ', sizeof(buf));
+    memset(buf, 0, sizeof(buf));
+    fill_lcdFb();
 
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display1) / 2), mqtt_display1, (int)(LCD_COL / 2 - strlen(mqtt_display1) / 2), "");
-    strncpy((char *)&lcdFb[0][0], buf, n - 1);
+    memmove((char *)&lcdFb[0][0], buf, (size_t)(n));
     n = snprintf(buf, sizeof(buf), "%*s%*s", (int)(LCD_COL / 2 + strlen(mqtt_display2) / 2), mqtt_display2, (int)(LCD_COL / 2 - strlen(mqtt_display2) / 2), "");
-    strncpy((char *)&lcdFb[1][0], buf, n - 1);
-    //daemon_log(LOG_INFO,"len=%d", n);
+    memmove((char *)&lcdFb[1][0], buf, (size_t)(n));
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -911,16 +895,16 @@ static void get_mqqt_last_event(void) {
 // LCD Update Function:
 //
 //------------------------------------------------------------------------------------------------------------
-static void lcd_update (void) {
-    int i, j;
+pthread_mutex_t lcd_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t lcd_cond = PTHREAD_COND_INITIALIZER;
 
-    // lcd fb clear
-    memset((void *)&lcdFb, ' ', sizeof(lcdFb));
+static void lcd_update (void) {
 
     // lcd fb update
     switch(DispMode)    {
     default  :
         DispMode = 0;
+        break;
     case    0:
         get_date_time();
         break;
@@ -943,10 +927,29 @@ static void lcd_update (void) {
     if (no_display) {
         return;
     }
-    for(i = 0; i < LCD_ROW; i++)    {
-        lcdPosition (lcdHandle, 0, i);
-        for(j = 0; j < LCD_COL; j++)    lcdPutchar(lcdHandle, lcdFb[i][j]);
+    if (memcmp(lcdFbTD, lcdFb, sizeof(lcdFbTD))) {
+       pthread_mutex_lock(&lcd_mutex);
+       memmove(lcdFbTD, lcdFb, sizeof(lcdFbTD));
+       pthread_cond_signal(&lcd_cond);
+       pthread_mutex_unlock(&lcd_mutex);
     }
+}
+
+static void * lcd_updater(void * UNUSED(p)) {
+    struct timespec ts;
+    while (!do_exit) {
+        pthread_mutex_lock(&lcd_mutex); // acquire the lock
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 1;
+        if (pthread_cond_timedwait(&lcd_cond, &lcd_mutex, &ts) != ETIMEDOUT) {
+            CharLCD_setCursor(lcd,0,0);
+            CharLCD_print(lcd, &lcdFbTD[0][0]);
+            CharLCD_setCursor(lcd,0,1);
+            CharLCD_print(lcd, &lcdFbTD[1][0]);
+        }
+        pthread_mutex_unlock(&lcd_mutex);
+    }
+    return NULL;
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -955,31 +958,21 @@ static void lcd_update (void) {
 //
 //------------------------------------------------------------------------------------------------------------
 int lcd_and_buttons_init(void) {
-    int i;
+
     if (no_display) {
         return 0;
     }
     // LCD Init
-    lcdHandle = lcdInit (LCD_ROW, LCD_COL, LCD_BUS,
-                         PORT_LCD_RS, PORT_LCD_E,
-                         PORT_LCD_D4, PORT_LCD_D5, PORT_LCD_D6, PORT_LCD_D7, 0, 0, 0, 0);
+    lcd = CharLCD_new(1, 0x20);
 
-    if(lcdHandle < 0)   {
-        daemon_log(LOG_ERR, "%s : lcdInit failed!", __func__);
+    if(lcd == NULL)   {
+        daemon_log(LOG_ERR, "%s : CharLCD_new failed!", __func__);
+        no_display = 1;
         return -1;
     }
-
-    // GPIO Init(LED Port ALL Output)
-    for(i = 0; i < MAX_LED_CNT; i++)    {
-        pinMode (ledPorts[i], OUTPUT);
-        pullUpDnControl (PORT_BUTTON1, PUD_OFF);
-    }
-
-    // Button Pull Up Enable.
-    pinMode (PORT_BUTTON1, INPUT);
-    pullUpDnControl (PORT_BUTTON1, PUD_UP);
-    pinMode (PORT_BUTTON2, INPUT);
-    pullUpDnControl (PORT_BUTTON2, PUD_UP);
+    CharLCD_start(lcd, 16, 2);
+    CharLCD_display(lcd);
+    CharLCD_setBacklight(lcd, WHITE);
 
     return  0;
 }
@@ -989,52 +982,38 @@ int lcd_and_buttons_init(void) {
 // board data update
 //
 //------------------------------------------------------------------------------------------------------------
-void blink_leds(void) {
-    for( int j = 0; j < 6; j++) {
-        for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], j % 2 == 0);
-        usleep(200000);
-    }
-}
 
 bool boardDataUpdate(void) {
-    bool flag_mod = false;
-    if (no_display) {
-        return flag_mod;
+
+//    static int count = 0;
+//    if (!digitalRead (PORT_BUTTON1) && !digitalRead (PORT_BUTTON2)) {
+//        count ++;
+//        if (count > 3) {
+//            daemon_log(LOG_WARNING, "Poweroff pressed!");
+//            blink_leds();
+//            sync();
+//            daemon_log(LOG_WARNING, "Poweroff!");
+//            reboot(RB_POWER_OFF);
+//        }
+//    }
+    int update_flag = 0;
+    uint8_t button_data = CharLCD_readButtons(lcd);
+    if (button_data & BUTTON_UP) {
+       update_flag = 1;
+       DispMode ++;
     }
-    // button status read
-    static int count = 0;
-    if (!digitalRead (PORT_BUTTON1) && !digitalRead (PORT_BUTTON2)) {
-        count ++;
-        if (count > 3) {
-            daemon_log(LOG_WARNING, "Poweroff pressed!");
-            blink_leds();
-            sync();
-            daemon_log(LOG_WARNING, "Poweroff!");
-            reboot(RB_POWER_OFF);
-        }
-    } else {
-        if(!digitalRead (PORT_BUTTON1)) {
-            if(DispMode)        DispMode--;
-            else                DispMode = MAX_DISP_MODE;
-            flag_mod = true;
-        } else {
-            if(!digitalRead (PORT_BUTTON2)) {
-                if(DispMode < MAX_DISP_MODE)    DispMode++;
-                else                DispMode = 0;
-                flag_mod = true;
-            } else {
-                count = 0;
-            }
-        }
+    if (button_data & BUTTON_DOWN) {
+       update_flag = 1;
+       DispMode --;
     }
-    //  LED Control
-    for(int i = 0; i < MAX_LED_CNT; i++)    digitalWrite (ledPorts[i], 0); // LED All Clear
-    digitalWrite(ledPorts[DispMode], 1);
-    return(flag_mod);
+    DispMode = DispMode % MAX_DISP_MODE;
+    //daemon_log(LOG_INFO, "%d %d", DispMode, update_flag);
+    return update_flag;
+
 }
 
 
-void on_log(struct mosquitto * mosq, void * userdata, int level, const char * str) {
+void on_log(struct mosquitto * UNUSED(mosq), void * UNUSED(userdata), int level, const char * str) {
     switch(level) {
 //    case MOSQ_LOG_DEBUG:
 //    case MOSQ_LOG_INFO:
@@ -1047,7 +1026,7 @@ void on_log(struct mosquitto * mosq, void * userdata, int level, const char * st
 }
 
 static
-void on_connect(struct mosquitto * m, void * udata, int res) {
+void on_connect(struct mosquitto * m, void * UNUSED(udata), int res) {
     switch (res) {
     case 0:
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
@@ -1073,20 +1052,20 @@ void on_connect(struct mosquitto * m, void * udata, int res) {
 }
 
 static
-void on_publish(struct mosquitto * m, void * udata, int m_id) {
+void on_publish(struct mosquitto * UNUSED(m), void * UNUSED(udata), int UNUSED(m_id)) {
     //daemon_log(LOG_ERR, "-- published successfully");
 }
 
 static
-void on_subscribe(struct mosquitto * m, void * udata, int mid,
-                  int qos_count, const int * granted_qos) {
+void on_subscribe(struct mosquitto * UNUSED(m), void * UNUSED(udata), int UNUSED(mid),
+                  int UNUSED(qos_count), const int * UNUSED(granted_qos)) {
     daemon_log(LOG_INFO, "-- subscribed successfully");
 }
 
 regex_t mqtt_topic_regex;
 
 static
-void on_message(struct mosquitto * m, void * udata,
+void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
                 const struct mosquitto_message * msg) {
     if (msg == NULL) {
         return;
@@ -1209,7 +1188,7 @@ void publish_double(char * topic, double value) {
     if (!mosq) return;
     char text[20];
     sprintf(text, "%.2f", value);
-    if ((res = mosquitto_publish (mosq, NULL, topic, strlen (text), text, 0, true)) != 0) {
+    if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(text), text, 0, true)) != 0) {
         if (res) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
         }
@@ -1222,10 +1201,11 @@ void publish_double(char * topic, double value) {
 //
 //------------------------------------------------------------------------------------------------------------
 
+
 static
-void * main_loop (void * p) {
-    int timer = 0;
-    int timer_auto_sw = 0;
+void * main_loop (void * UNUSED(p)) {
+    long timer_auto_sw = 0;
+    long timer_display = 0;
     daemon_log(LOG_INFO, "%s", __FUNCTION__);
 
 
@@ -1234,27 +1214,28 @@ void * main_loop (void * p) {
 
 
     while(!do_exit)    {
-        if (millis () < timer)  {
-            usleep(100000);    // 100ms sleep state
-            if (!boardDataUpdate()) {
-                continue;
-            } else {
-                timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
-            }
+
+        if (boardDataUpdate()) {
+            timer_auto_sw = timeMillis() + LCD_AUTO_SW_TIMEOUT;
+            timer_display = 0;
+        } else {
+            usleep(1000);
         }
 
-        if (millis () >= timer_auto_sw) {
-            timer_auto_sw = millis () + LCD_AUTO_SW_TIMEOUT;
-            DispMode ++;
+        if (timeMillis() >= timer_auto_sw) {
+            timer_auto_sw = timeMillis() + LCD_AUTO_SW_TIMEOUT;
+            DispMode++;
             DispMode &= 1;
         }
 
-        timer = millis () + LCD_UPDATE_PERIOD;
-        get_weather_info(weather);
-        publish_sensors(weather);
-        publish_state();
-        publish_piaware();
-        lcd_update();
+	if (timeMillis() >= timer_display) {
+            timer_display = timeMillis() + LCD_UPDATE_PERIOD;
+    	    get_weather_info(weather);
+    	    publish_sensors(weather);
+    	    publish_state();
+    	    publish_piaware();
+    	    lcd_update();
+	}
     }
     weather_free(&weather[WEATHER_EXT]);
     weather_free(&weather[WEATHER_INT]);
@@ -1285,6 +1266,7 @@ main (int argc, char * const * argv) {
     char * command = NULL;
     pid_t pid;
     pthread_t main_th = 0;
+    pthread_t updater_th = 0;
 
     int    fd, sel_res;
 
@@ -1301,7 +1283,7 @@ main (int argc, char * const * argv) {
         pathname = xstrdup(CDIR);
     else {
         pathname = xmalloc(strlen(argv[0]) + 1);
-        strncpy(pathname, argv[0], (strrchr(argv[0], '/') - argv[0]) + 1);
+        strncpy(pathname, argv[0], (size_t)(strrchr(argv[0], '/') - argv[0]) + 1);
     }
 
     if (chdir(pathname) < 0) {
@@ -1330,6 +1312,8 @@ main (int argc, char * const * argv) {
         {"mqtt-password",               required_argument,  0, 'P'},
         {"lat",                         required_argument,  0, 'l'},
         {"lon",                         required_argument,  0, 'L'},
+        {"no-display",                  no_argument,        0, 'D'},
+        {"no-weather",                  no_argument,        0, 'V'},
         {0, 0, 0, 0}
     };
 
@@ -1485,8 +1469,8 @@ main (int argc, char * const * argv) {
             daemon_log(LOG_ERR, "getrlimit RLIMIT_CORE error:%s", strerror(errno));
         } else {
             daemon_log(LOG_INFO, "core limit is cur:%2ld max:%2ld", core_lim.rlim_cur, core_lim.rlim_max );
-            core_lim.rlim_cur = -1;
-            core_lim.rlim_max = -1;
+            core_lim.rlim_cur = ULONG_MAX;
+            core_lim.rlim_max = ULONG_MAX;
             if (setrlimit(RLIMIT_CORE, &core_lim) < 0) {
                 daemon_log(LOG_ERR, "setrlimit RLIMIT_CORE error:%s", strerror(errno));
             } else {
@@ -1495,14 +1479,11 @@ main (int argc, char * const * argv) {
         }
         main_pid = syscall(SYS_gettid);
 
-        if (!no_weather || !no_display) {
-           wiringPiSetup ();
-        }
-
         if (lcd_and_buttons_init() < 0) {
             daemon_log(LOG_ERR, "%s: DISPLAY Init failed", __func__);
             goto finish;
         }
+
         daemon_log(LOG_INFO, "Compiling regexp: '%s'", mqtt_topic_regex_string);
         int reti = regcomp(&mqtt_topic_regex, mqtt_topic_regex_string, 0);
         if (reti) {
@@ -1514,6 +1495,7 @@ main (int argc, char * const * argv) {
         sleep(1);
 
         pthread_create( &main_th, NULL, main_loop, NULL);
+        pthread_create( &updater_th, NULL,lcd_updater, NULL);
 // main
 
         fd_set fds;
@@ -1599,6 +1581,8 @@ finish:
     regfree(&mqtt_topic_regex);
     mosq_destroy();
     pthread_join(main_th, NULL);
+    pthread_join(updater_th, NULL);
+    CharLCD_destroy(&lcd);
     FREE(hostname);
     FREE(pathname);
     daemon_retval_send(-1);
