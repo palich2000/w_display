@@ -997,15 +997,49 @@ bool boardDataUpdate(void) {
 //        }
 //    }
     int update_flag = 0;
+
     uint8_t button_data = CharLCD_readButtons(lcd);
+    static bool BUTTON_UP_press = false;
+    static bool BUTTON_DOWN_press = false;
+    static bool BUTTON_SELECT_press = false;
+
     if (button_data & BUTTON_UP) {
-       update_flag = 1;
-       DispMode ++;
+       if (BUTTON_UP_press == false) {
+          BUTTON_UP_press = true;
+          update_flag = 1;
+          DispMode ++;
+          BUTTON_UP_press = true;
+       }
+    } else {
+      BUTTON_UP_press = false;
     }
+
     if (button_data & BUTTON_DOWN) {
-       update_flag = 1;
-       DispMode --;
+       if (BUTTON_DOWN_press == false) {
+          BUTTON_DOWN_press = true;
+          update_flag = 1;
+          DispMode --;
+          BUTTON_DOWN_press = true;
+       }
+    } else {
+       BUTTON_DOWN_press = false;
     }
+
+    if (button_data & BUTTON_SELECT) {
+       if (!BUTTON_SELECT_press) {
+          BUTTON_SELECT_press = true;
+          static int clr = 1;
+          clr ++;
+          if (clr % 2 == 0) {
+             CharLCD_setBacklight(lcd, BLACK);
+          } else {
+             CharLCD_setBacklight(lcd, WHITE);
+          }
+      }
+    } else {
+      BUTTON_SELECT_press = false;
+    }
+
     DispMode = DispMode % MAX_DISP_MODE;
     //daemon_log(LOG_INFO, "%d %d", DispMode, update_flag);
     return update_flag;
@@ -1219,7 +1253,7 @@ void * main_loop (void * UNUSED(p)) {
             timer_auto_sw = timeMillis() + LCD_AUTO_SW_TIMEOUT;
             timer_display = 0;
         } else {
-            usleep(1000);
+            usleep(10000);
         }
 
         if (timeMillis() >= timer_auto_sw) {
@@ -1314,6 +1348,7 @@ main (int argc, char * const * argv) {
         {"lon",                         required_argument,  0, 'L'},
         {"no-display",                  no_argument,        0, 'D'},
         {"no-weather",                  no_argument,        0, 'V'},
+        {"aircraft",                    no_argument,        0, 'A'},
         {0, 0, 0, 0}
     };
 
