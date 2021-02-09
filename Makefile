@@ -2,7 +2,7 @@ CC = gcc
 
 CFLAGS = -g -std=c11 -MD -MP  -Wall -Werror -Wfatal-errors -Wextra  -g -I.
 
-OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o CharLCD.o MCP23017.o
+OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o CharLCD.o MCP23017.o ina219.o
 
 EXTRA_LIBS = -li2c -lpthread -lm -lcrypt -lrt -lmosquitto -lzip
 

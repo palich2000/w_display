@@ -43,6 +43,7 @@
 #include "nxjson.h"
 #include "array.h"
 #include "CharLCD.h"
+#include "ina219.h"
 //------------------------------------------------------------------------------------------------------------
 //
 // Global handle Define
@@ -196,6 +197,44 @@ uint64_t timeMillis(void) {
   struct timeval time;
   gettimeofday(&time, NULL);
   return time.tv_sec * 1000UL + time.tv_usec / 1000UL;
+}
+
+//------------------------------------------------------------------------------------------------------------
+//
+// ina 219 stuff
+//
+//------------------------------------------------------------------------------------------------------------
+
+ina_219_device *ina_219_dev = NULL;
+double ina_voltage = 0.0;
+double ina_current = 0.0;
+
+int ina_init(void) {
+    ina_219_dev = ina_219_device_open("/dev/i2c-1", 0x40);
+    if (ina_219_dev == NULL) {
+	return -1;
+    }
+    ina_219_device_config(ina_219_dev, INA_219_DEVICE_BUS_VOLTAGE_RANGE_32 |
+                               INA_219_DEVICE_GAIN_8 |
+                               INA_219_DEVICE_MODE_SHUNT |
+                               INA_219_DEVICE_MODE_BUS |
+                               INA_219_DEVICE_BADC_12_BIT_4_AVERAGE |
+                               INA_219_DEVICE_SADC_12_BIT_4_AVERAGE);
+    ina_219_device_calibrate(ina_219_dev, 0.05, 3.0);
+    return 0;
+}
+
+void ina_done(void) {
+    if (ina_219_dev) {
+	ina_219_device_close(ina_219_dev);
+    }
+}
+
+void ina_get(void) {
+    if (ina_219_dev) {
+	ina_voltage = ina_219_device_get_bus_voltage(ina_219_dev);
+	ina_current = ina_219_device_get_current(ina_219_dev);
+    }
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -819,8 +858,8 @@ static void publish_state(void) {
         const char *topic = create_topic(MQTT_STATE_TOPIC);
 
 
-        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
-                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
+                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C, ina_current, ina_voltage);
         daemon_log(LOG_INFO, "%s %s", topic, buf);
         if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
@@ -857,10 +896,11 @@ static void display_weather_info(weather_t * weather[]) {
     memset(buf, 0, sizeof(buf));
     fill_lcdFb();
 
-    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
+    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %0.2f",
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
-                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
+                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")), 
+                 ina_voltage);
     memmove((char *)&lcdFb[0][0], buf, (size_t)n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
                  weather[WEATHER_EXT]->location,
@@ -1264,6 +1304,7 @@ void * main_loop (void * UNUSED(p)) {
 	if (timeMillis() >= timer_display) {
             timer_display = timeMillis() + LCD_UPDATE_PERIOD;
     	    get_weather_info(weather);
+            ina_get();
     	    publish_sensors(weather);
     	    publish_state();
     	    publish_piaware();
@@ -1276,6 +1317,7 @@ void * main_loop (void * UNUSED(p)) {
     pthread_exit(NULL);
 }
 
+
 //------------------------------------------------------------------------------------------------------------
 //
 // Usage:
@@ -1283,6 +1325,7 @@ void * main_loop (void * UNUSED(p)) {
 //------------------------------------------------------------------------------------------------------------
 static void usage() {
 }
+
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -1526,6 +1569,7 @@ main (int argc, char * const * argv) {
         }
 
         mosq_init();
+        ina_init();
         sleep(1);
 
         pthread_create( &main_th, NULL, main_loop, NULL);
@@ -1617,6 +1661,7 @@ finish:
     pthread_join(main_th, NULL);
     pthread_join(updater_th, NULL);
     CharLCD_destroy(&lcd);
+    ina_done();
     FREE(hostname);
     FREE(pathname);
     daemon_retval_send(-1);
