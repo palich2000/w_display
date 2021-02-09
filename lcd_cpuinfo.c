@@ -192,10 +192,10 @@ const DAEMON_COMMAND_T daemon_commands[] = {
     {.command_name= "check",       .command_callback= check_callback,       .command_int= CMD_CHECK},
 };
 
-long timeMillis(void) {
+uint64_t timeMillis(void) {
   struct timeval time;
   gettimeofday(&time, NULL);
-  return time.tv_sec * 1000 + time.tv_usec / 1000;
+  return time.tv_sec * 1000UL + time.tv_usec / 1000UL;
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -531,7 +531,7 @@ void publish_sensors(weather_t * cur_weather[]) {
     if (no_weather) {
         return;
     }
-    static int timer_publish_state = 0;
+    static uint64_t timer_publish_state = 0;
     if (timer_publish_state >  timeMillis()) return;
     else {
         timer_publish_state = timeMillis() + SENSORS_PUBLISH_INTERVAL;
@@ -745,7 +745,7 @@ void publish_piaware(void) {
     if (no_aircraft) {
         return;
     }
-    static int timer_publish_state = 0;
+    static uint64_t timer_publish_state = 0;
 
     if (timer_publish_state >  timeMillis()) return;
     else {
@@ -787,7 +787,7 @@ void mqtt_publish_lwt(bool online) {
 
 static void publish_state(void) {
 
-    static int timer_publish_state = 0;
+    static uint64_t timer_publish_state = 0;
 
     if (timer_publish_state >  timeMillis()) return;
     else {
@@ -1238,8 +1238,8 @@ void publish_double(char * topic, double value) {
 
 static
 void * main_loop (void * UNUSED(p)) {
-    long timer_auto_sw = 0;
-    long timer_display = 0;
+    uint64_t timer_auto_sw = 0;
+    uint64_t timer_display = 0;
     daemon_log(LOG_INFO, "%s", __FUNCTION__);
 
 
@@ -1248,7 +1248,6 @@ void * main_loop (void * UNUSED(p)) {
 
 
     while(!do_exit)    {
-
         if (boardDataUpdate()) {
             timer_auto_sw = timeMillis() + LCD_AUTO_SW_TIMEOUT;
             timer_display = 0;
