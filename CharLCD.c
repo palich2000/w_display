@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-
+#include "dlog.h"
 
 // When the display powers up, it is configured as follows:
 //
@@ -34,7 +34,7 @@ static void CharLCD_pulseEnable(CharLCD_t * disp);
 
 CharLCD_t * CharLCD_new(int bus, int address)
 {
-    printf("bus: %d addr:%x\n", bus, address);
+    DLOG_INFO("MCP23017 bus: %d addr:%x", bus, address);
 
     CharLCD_t * disp = calloc(1, sizeof(*disp));
     if (!disp) return NULL;
@@ -77,10 +77,10 @@ void CharLCD_start(CharLCD_t * disp, uint8_t cols, uint8_t lines) {
     if (!disp) return;
 
     if (!MCP23017_openI2C(disp->_i2c)) {
-        printf("MCP23017 init FAIL !\n");
+        DLOG_ERR("MCP23017 init FAIL !");
         return;
     } else {
-        printf("MCP23017 init OK !\n");
+        DLOG_INFO("MCP23017 init OK !");
     }
 
 

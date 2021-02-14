@@ -206,27 +206,38 @@ uint64_t timeMillis(void) {
 //------------------------------------------------------------------------------------------------------------
 
 ina_219_device *ina_219_dev = NULL;
-double ina_voltage = 0.0;
-double ina_current = 0.0;
+double ina_voltage = NAN;
+double ina_current = NAN;
+void ina_done(void);
 
 int ina_init(void) {
     ina_219_dev = ina_219_device_open("/dev/i2c-1", 0x40);
     if (ina_219_dev == NULL) {
 	return -1;
     }
-    ina_219_device_config(ina_219_dev, INA_219_DEVICE_BUS_VOLTAGE_RANGE_32 |
+    if (ina_219_device_config(ina_219_dev, INA_219_DEVICE_BUS_VOLTAGE_RANGE_32 |
                                INA_219_DEVICE_GAIN_8 |
                                INA_219_DEVICE_MODE_SHUNT |
                                INA_219_DEVICE_MODE_BUS |
                                INA_219_DEVICE_BADC_12_BIT_4_AVERAGE |
-                               INA_219_DEVICE_SADC_12_BIT_4_AVERAGE);
-    ina_219_device_calibrate(ina_219_dev, 0.05, 3.0);
+                               INA_219_DEVICE_SADC_12_BIT_4_AVERAGE) < 0) {
+
+        DLOG_ERR("Unable to setup device ina_219 close it");
+        ina_done();
+        return -1;
+    }
+    if (ina_219_device_calibrate(ina_219_dev, 0.05, 3.0) < 0) {
+	DLOG_ERR("Unable to calibrate device ina_219 close it");
+        ina_done();
+        return -1;
+    }
     return 0;
 }
 
 void ina_done(void) {
     if (ina_219_dev) {
 	ina_219_device_close(ina_219_dev);
+	ina_219_dev = NULL;
     }
 }
 

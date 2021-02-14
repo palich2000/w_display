@@ -9,7 +9,7 @@
 #include <math.h>
 #include  <i2c/smbus.h>
 #include "ina219.h"
-
+#include "dlog.h"
 
 //physics constants
 //shunt voltage precision = 10 mkV
@@ -37,10 +37,10 @@ ina_219_device* ina_219_device_open(const char * ina_219_device_filename, uint8_
 	return res;
 
 address_device_error:
-	printf("init communication with device error\n");
+	DLOG_ERR("init communication with device error");
 open_i2c_error:
-	printf("open device error\n");
-	printf("device addr: %x\n", i2c_device_addr);
+	DLOG_ERR("open device error");
+	DLOG_ERR("device addr: %x", i2c_device_addr);
 	free(res);
 	
 
@@ -62,8 +62,8 @@ double ina_219_device_get_current(ina_219_device *dev)
 	int32_t res = ina_219_device_read_reg(dev, INA_219_DEVICE_CURRENT_REG);
 
 	if (res < 0) {
-		printf("read current error\n");
-		exit(1);
+		DLOG_ERR("read current error");
+		return(NAN);
 	}
 
 	//не забываем отбросить старшие разряды
@@ -78,7 +78,7 @@ double ina_219_device_get_bus_voltage(ina_219_device *dev)
 	int16_t res_p;
 
 	if (!dev->bus_on) {
-		printf("warning: bus mode is off\n");
+		DLOG_ERR("warning: bus mode is off");
 		return 0.0;
 	}
 
@@ -86,8 +86,8 @@ double ina_219_device_get_bus_voltage(ina_219_device *dev)
 		res = ina_219_device_read_reg(dev, INA_219_DEVICE_BUS_VOLTAGE_REG);
 
 		if (res < 0) {
-			printf("read bus voltage error\n");
-			exit(1);
+			DLOG_ERR("read bus voltage error");
+			return NAN;
 		}
 
 		//не забываем отбросить старшие разряды
@@ -95,8 +95,8 @@ double ina_219_device_get_bus_voltage(ina_219_device *dev)
 	} while (!(res_p & 0b10u));
 
 	if (res_p & 0b01u) {
-		printf("Math Overflow error\n");
-		return 0;
+		DLOG_ERR("Math Overflow error");
+		return NAN;
 	}
 
 	res_p >>= 3;
@@ -107,15 +107,15 @@ double ina_219_device_get_bus_voltage(ina_219_device *dev)
 double ina_219_device_get_shunt_voltage(ina_219_device *dev)
 {
 	if (!dev->shunt_on) {
-		printf("warning: shunt mode is off\n");
+		DLOG_WARNING("warning: shunt mode is off");
 		return 0.0;
 	}
 
 	int32_t res = ina_219_device_read_reg(dev, INA_219_DEVICE_SHUNT_VOLTAGE_REG);
 
 	if (res < 0) {
-		printf("read shunt voltage error\n");
-		exit(1);
+		DLOG_ERR("read shunt voltage error");
+		return NAN;
 	}
 
 	//не забываем отбросить старшие разряды

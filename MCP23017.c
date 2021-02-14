@@ -1,5 +1,6 @@
 #include <MCP23017.h>
 #include <string.h>
+#include "dlog.h"
 
 static uint8_t bitForPin(uint8_t pin);
 static uint8_t regForPin(uint8_t pin, uint8_t portAaddr, uint8_t portBaddr);
@@ -15,7 +16,7 @@ MCP23017_t * MCP23017_new(int bus, int address) {
     dev->kI2CBus = bus;           // I2C bus of Jetson (1 and 8 available on Xavier)
     dev->kI2CAddress = address ; // Address of MCP23017; defaults to 0x20
     dev->error = 0 ;
-    printf("MCP23017 bus: %d addr:%x\n", bus, address);
+    DLOG_INFO("MCP23017 bus: %d addr:%x", bus, address);
     return dev;
 }
 
@@ -56,13 +57,13 @@ bool MCP23017_openI2C(MCP23017_t * dev)
     if (dev->kI2CFileDescriptor < 0) {
         // Could not open the file
        dev->error = errno ;
-       printf("1************ %d %s %s\n", errno, strerror(errno), fileNameBuffer);
+       DLOG_ERR("Could not open the file %d %s %s", errno, strerror(errno), fileNameBuffer);
        return false ;
     }
     if (ioctl(dev->kI2CFileDescriptor, I2C_SLAVE, dev->kI2CAddress) < 0) {
         // Could not open the device on the bus
         dev->error = errno ;
-        printf("2*********** %d %s\n", errno, strerror(errno));
+        DLOG_ERR("Could not open the device on the bus %d %s", errno, strerror(errno));
         return false ;
     }
     // set defaults!
@@ -96,7 +97,7 @@ static uint8_t readRegister(MCP23017_t * dev, uint8_t addr)
     if (!dev) return -1;
     int toReturn = i2c_smbus_read_byte_data(dev->kI2CFileDescriptor, addr);
     if (toReturn < 0) {
-        printf("MCP23017 Read Byte error: %d",errno) ;
+        DLOG_ERR("MCP23017 Read Byte error: %d",errno) ;
         dev->error = errno ;
         toReturn = -1 ;
     }
@@ -130,7 +131,7 @@ static uint8_t readByte(MCP23017_t * dev)
     if (!dev) return -1;
     int toReturn = i2c_smbus_read_byte(dev->kI2CFileDescriptor);
     if (toReturn < 0) {
-        printf("MCP23017 Read Byte error: %d",errno) ;
+        DLOG_ERR("MCP23017 Read Byte error: %d",errno) ;
         dev->error = errno ;
         toReturn = -1 ;
     }
@@ -148,7 +149,7 @@ static uint8_t writeByte(MCP23017_t * dev, uint8_t writeValue)
     if (!dev) return -1;
     int toReturn = i2c_smbus_write_byte(dev->kI2CFileDescriptor, writeValue);
     if (toReturn < 0) {
-        printf("MCP23017 Write Byte error: %d",errno) ;
+        DLOG_ERR("MCP23017 Write Byte error: %d",errno) ;
         dev->error = errno ;
         toReturn = -1 ;
     }
