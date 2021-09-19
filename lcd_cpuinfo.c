@@ -70,19 +70,21 @@ static int do_exit = 0;
 #define STATE_PUBLISH_INTERVAL 60000   // 60 sec
 #define SENSORS_PUBLISH_INTERVAL 60000 // 60 sec
 #define PIAWARE_PUBLISH_INTERVAL 60000 // 60 sec
-
+static int thermal_zone = 0;
 static int no_aircraft = 1;
 static int no_weather = 0;
 static int no_display = 0;
-static char lcdFb[LCD_ROW][LCD_COL+1] = {0};
-static char lcdFbTD[LCD_ROW][LCD_COL+1] = {0};
+static char lcdFb[LCD_ROW][LCD_COL + 1] = {0};
+static char lcdFbTD[LCD_ROW][LCD_COL + 1] = {0};
 
 void fill_lcdFb(void) {
-    memset(&lcdFb[0][0],' ',LCD_COL); lcdFb[0][LCD_COL] = 0;
-    memset(&lcdFb[1][0],' ',LCD_COL); lcdFb[1][LCD_COL] = 0;
+    memset(&lcdFb[0][0], ' ', LCD_COL);
+    lcdFb[0][LCD_COL] = 0;
+    memset(&lcdFb[1][0], ' ', LCD_COL);
+    lcdFb[1][LCD_COL] = 0;
 }
 
-static CharLCD_t *lcd = NULL;
+static CharLCD_t * lcd = NULL;
 double station_lat = 50.371;
 double station_lon = 30.389;
 
@@ -187,16 +189,16 @@ int restart_callback(void * UNUSED(param)) {
 }
 
 const DAEMON_COMMAND_T daemon_commands[] = {
-    {.command_name= "reconfigure", .command_callback= reconfigure_callback, .command_int= CMD_RECONFIGURE},
-    {.command_name= "shutdown",    .command_callback= shutdown_callback,    .command_int= CMD_SHUTDOWN},
-    {.command_name= "restart",     .command_callback= restart_callback,     .command_int= CMD_RESTART},
-    {.command_name= "check",       .command_callback= check_callback,       .command_int= CMD_CHECK},
+    {.command_name = "reconfigure", .command_callback = reconfigure_callback, .command_int = CMD_RECONFIGURE},
+    {.command_name = "shutdown",    .command_callback = shutdown_callback,    .command_int = CMD_SHUTDOWN},
+    {.command_name = "restart",     .command_callback = restart_callback,     .command_int = CMD_RESTART},
+    {.command_name = "check",       .command_callback = check_callback,       .command_int = CMD_CHECK},
 };
 
 uint64_t timeMillis(void) {
-  struct timeval time;
-  gettimeofday(&time, NULL);
-  return time.tv_sec * 1000UL + time.tv_usec / 1000UL;
+    struct timeval time;
+    gettimeofday(&time, NULL);
+    return time.tv_sec * 1000UL + time.tv_usec / 1000UL;
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -205,7 +207,7 @@ uint64_t timeMillis(void) {
 //
 //------------------------------------------------------------------------------------------------------------
 
-ina_219_device *ina_219_dev = NULL;
+ina_219_device * ina_219_dev = NULL;
 double ina_voltage = NAN;
 double ina_current = NAN;
 void ina_done(void);
@@ -213,21 +215,21 @@ void ina_done(void);
 int ina_init(void) {
     ina_219_dev = ina_219_device_open("/dev/i2c-1", 0x40);
     if (ina_219_dev == NULL) {
-	return -1;
+        return -1;
     }
     if (ina_219_device_config(ina_219_dev, INA_219_DEVICE_BUS_VOLTAGE_RANGE_32 |
-                               INA_219_DEVICE_GAIN_8 |
-                               INA_219_DEVICE_MODE_SHUNT |
-                               INA_219_DEVICE_MODE_BUS |
-                               INA_219_DEVICE_BADC_12_BIT_4_AVERAGE |
-                               INA_219_DEVICE_SADC_12_BIT_4_AVERAGE) < 0) {
+                              INA_219_DEVICE_GAIN_8 |
+                              INA_219_DEVICE_MODE_SHUNT |
+                              INA_219_DEVICE_MODE_BUS |
+                              INA_219_DEVICE_BADC_12_BIT_4_AVERAGE |
+                              INA_219_DEVICE_SADC_12_BIT_4_AVERAGE) < 0) {
 
         DLOG_ERR("Unable to setup device ina_219 close it");
         ina_done();
         return -1;
     }
     if (ina_219_device_calibrate(ina_219_dev, 0.05, 3.0) < 0) {
-	DLOG_ERR("Unable to calibrate device ina_219 close it");
+        DLOG_ERR("Unable to calibrate device ina_219 close it");
         ina_done();
         return -1;
     }
@@ -236,15 +238,15 @@ int ina_init(void) {
 
 void ina_done(void) {
     if (ina_219_dev) {
-	ina_219_device_close(ina_219_dev);
-	ina_219_dev = NULL;
+        ina_219_device_close(ina_219_dev);
+        ina_219_dev = NULL;
     }
 }
 
 void ina_get(void) {
     if (ina_219_dev) {
-	ina_voltage = ina_219_device_get_bus_voltage(ina_219_dev);
-	ina_current = ina_219_device_get_current(ina_219_dev);
+        ina_voltage = ina_219_device_get_bus_voltage(ina_219_dev);
+        ina_current = ina_219_device_get_current(ina_219_dev);
     }
 }
 
@@ -331,16 +333,43 @@ static void get_date_time(void) {
 // Get CPU Temperature
 //
 //------------------------------------------------------------------------------------------------------------
-#define FD_SYSTEM_TEMP  "/sys/class/thermal/thermal_zone0/temp"
+//sensors coretemp-isa-0000 -j
 
-static void get_cpu_temperature(void) {
+#define NX_JSON_REPORT_ERROR(msg, ptr)\
+    daemon_log(LOG_ERR,"%s",msg);
+
+static double get_cpu_temperature_sensors(const char * sensor_name) {
+    double ret = NAN;
+    FILE * fp = NULL;
+    char buf[1024] = {0};
+    char * command = NULL;
+    asprintf(&command, "/usr/bin/sensors -j %s", sensor_name);
+    fp = popen(command, "r");
+    if (fp == NULL) {
+        daemon_log(LOG_ERR, "Failed to run command '%s'", command);
+    } else {
+        fread(buf, sizeof(buf) - 1, 1, fp);
+        pclose(fp);
+        const nx_json * json_temp = nx_json_parse(buf, NULL);
+
+        nx_json_free(json_temp);
+    }
+    FREE(command);
+    return ret;
+}
+
+#define FD_SYSTEM_TEMP_TMPL  "/sys/class/thermal/thermal_zone%d/temp"
+
+static void get_cpu_temperature(int thermal_zone) {
     int     fd, temp_C, temp_F;
     char    buf[LCD_COL + 1] = {0};
+    char   *  f_name = NULL;
 
     fill_lcdFb();
-
-    if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
+    asprintf(&f_name, FD_SYSTEM_TEMP_TMPL, thermal_zone);
+    if((fd = open(f_name, O_RDONLY)) < 0)    {
         daemon_log(LOG_ERR, "%s : file open error!", __func__);
+        daemon_log(LOG_INFO, "TEMP:%.2f", get_cpu_temperature_sensors("coretemp-isa-0000"));
     } else    {
         read(fd, buf, LCD_COL);
         close(fd);
@@ -353,6 +382,7 @@ static void get_cpu_temperature(void) {
         n = sprintf(buf, "%3d *C, %3d.%1d *F", temp_C, temp_F, temp_F % 10);
         memmove((char *)&lcdFb[1][0], buf, (size_t)n);
     }
+    FREE(f_name);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -587,7 +617,7 @@ void publish_sensors(weather_t * cur_weather[]) {
         timer_publish_state = timeMillis() + SENSORS_PUBLISH_INTERVAL;
     }
 
-    const char *topic = create_topic(MQTT_SENSOR_TOPIC);
+    const char * topic = create_topic(MQTT_SENSOR_TOPIC);
 
     time_t timer;
     char tm_buffer[26] = {0};
@@ -605,7 +635,7 @@ void publish_sensors(weather_t * cur_weather[]) {
     strcat(buf, "\",");
 
     for (int w = 0; w < WEATHER_COUNT; w++) {
-        char wbuf[512]="";
+        char wbuf[512] = "";
         int c = 0;
         strcat(strcat(strcat(wbuf, "\""), cur_weather[w]->location), "\":{");
         array_for_each(cur_weather[w]->sensors, i) {
@@ -617,7 +647,7 @@ void publish_sensors(weather_t * cur_weather[]) {
         wbuf[strlen(wbuf) - 1] = 0;
         strcat(wbuf, "},");
         if (c) {
-           strcat(buf, wbuf);
+            strcat(buf, wbuf);
         }
     }
     size_t l = strlen(buf);
@@ -785,6 +815,7 @@ int get_aircrafts(double * md) {
         }
         nx_json_free(root);
     }
+    DLOG_DEBUG("MAX DIST:%6.2f %p", max_dist, md);
     if (md) {
         *md = max_dist;
     }
@@ -802,7 +833,7 @@ void publish_piaware(void) {
         timer_publish_state = timeMillis() + PIAWARE_PUBLISH_INTERVAL;
     }
 
-    const char *topic =  create_topic(MQTT_STATE_TOPIC);
+    const char * topic =  create_topic(MQTT_PIAWARE_TOPIC);
 
     time_t timer;
     char tm_buffer[26] = {};
@@ -812,9 +843,10 @@ void publish_piaware(void) {
     time(&timer);
     tm_info = localtime(&timer);
     strftime(tm_buffer, 26, "%Y-%m-%dT%H:%M:%S", tm_info);
-    double md;
+    double md = 0;
+    int ac = get_aircrafts(&md);
     snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Piaware\": {\"Aircraft\": %d, \"Messages\": %.2f, \"MaximumDistance\": %.2f}}",
-             tm_buffer, get_aircrafts(&md), get_mps(), md);
+             tm_buffer, ac, get_mps(), md);
 
     daemon_log(LOG_INFO, "%s %s", topic, buf);
     int res;
@@ -829,7 +861,7 @@ void mqtt_publish_lwt(bool online) {
     const char * msg = online ? ONLINE : OFFLINE ;
     int res;
     const char * topic = create_topic(MQTT_LWT_TOPIC);
-    daemon_log(LOG_INFO,"publish %s: %s", topic, msg);
+    daemon_log(LOG_INFO, "publish %s: %s", topic, msg);
     if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(msg), msg, 0, true)) != 0) {
         DLOG_ERR("Can't publish to Mosquitto server %s", mosquitto_strerror(res));
     }
@@ -859,18 +891,21 @@ static void publish_state(void) {
         int fd;
         char tmp_buf[20];
         memset(tmp_buf, ' ', sizeof(tmp_buf));
-        if((fd = open(FD_SYSTEM_TEMP, O_RDONLY)) < 0)    {
+        char * f_name = NULL;
+        asprintf(&f_name, FD_SYSTEM_TEMP_TMPL, thermal_zone);
+        if((fd = open(f_name, O_RDONLY)) < 0)    {
             daemon_log(LOG_ERR, "%s : file open error!", __func__);
         } else    {
             read(fd, buf, sizeof(tmp_buf));
             close(fd);
         }
+        FREE(f_name);
         int temp_C = atoi(buf) / 1000;
-        const char *topic = create_topic(MQTT_STATE_TOPIC);
+        const char * topic = create_topic(MQTT_STATE_TOPIC);
 
 
-        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
-                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C, ina_current, ina_voltage);
+        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
+                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
         daemon_log(LOG_INFO, "%s %s", topic, buf);
         if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
@@ -910,7 +945,7 @@ static void display_weather_info(weather_t * weather[]) {
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %0.2f",
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
-                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")), 
+                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")),
                  ina_voltage);
     memmove((char *)&lcdFb[0][0], buf, (size_t)n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
@@ -966,7 +1001,7 @@ static void lcd_update (void) {
         get_ethernet_ip();
         break;
     case    3:
-        get_cpu_temperature();
+        get_cpu_temperature(thermal_zone);
         break;
     case    4:
         get_littlecore_freq();
@@ -979,10 +1014,10 @@ static void lcd_update (void) {
         return;
     }
     if (memcmp(lcdFbTD, lcdFb, sizeof(lcdFbTD))) {
-       pthread_mutex_lock(&lcd_mutex);
-       memmove(lcdFbTD, lcdFb, sizeof(lcdFbTD));
-       pthread_cond_signal(&lcd_cond);
-       pthread_mutex_unlock(&lcd_mutex);
+        pthread_mutex_lock(&lcd_mutex);
+        memmove(lcdFbTD, lcdFb, sizeof(lcdFbTD));
+        pthread_cond_signal(&lcd_cond);
+        pthread_mutex_unlock(&lcd_mutex);
     }
 }
 
@@ -993,9 +1028,9 @@ static void * lcd_updater(void * UNUSED(p)) {
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 1;
         if (pthread_cond_timedwait(&lcd_cond, &lcd_mutex, &ts) != ETIMEDOUT) {
-            CharLCD_setCursor(lcd,0,0);
+            CharLCD_setCursor(lcd, 0, 0);
             CharLCD_print(lcd, &lcdFbTD[0][0]);
-            CharLCD_setCursor(lcd,0,1);
+            CharLCD_setCursor(lcd, 0, 1);
             CharLCD_print(lcd, &lcdFbTD[1][0]);
         }
         pthread_mutex_unlock(&lcd_mutex);
@@ -1055,40 +1090,40 @@ bool boardDataUpdate(void) {
     static bool BUTTON_SELECT_press = false;
 
     if (button_data & BUTTON_UP) {
-       if (BUTTON_UP_press == false) {
-          BUTTON_UP_press = true;
-          update_flag = 1;
-          DispMode ++;
-          BUTTON_UP_press = true;
-       }
+        if (BUTTON_UP_press == false) {
+            BUTTON_UP_press = true;
+            update_flag = 1;
+            DispMode ++;
+            BUTTON_UP_press = true;
+        }
     } else {
-      BUTTON_UP_press = false;
+        BUTTON_UP_press = false;
     }
 
     if (button_data & BUTTON_DOWN) {
-       if (BUTTON_DOWN_press == false) {
-          BUTTON_DOWN_press = true;
-          update_flag = 1;
-          DispMode --;
-          BUTTON_DOWN_press = true;
-       }
+        if (BUTTON_DOWN_press == false) {
+            BUTTON_DOWN_press = true;
+            update_flag = 1;
+            DispMode --;
+            BUTTON_DOWN_press = true;
+        }
     } else {
-       BUTTON_DOWN_press = false;
+        BUTTON_DOWN_press = false;
     }
 
     if (button_data & BUTTON_SELECT) {
-       if (!BUTTON_SELECT_press) {
-          BUTTON_SELECT_press = true;
-          static int clr = 1;
-          clr ++;
-          if (clr % 2 == 0) {
-             CharLCD_setBacklight(lcd, BLACK);
-          } else {
-             CharLCD_setBacklight(lcd, WHITE);
-          }
-      }
+        if (!BUTTON_SELECT_press) {
+            BUTTON_SELECT_press = true;
+            static int clr = 1;
+            clr ++;
+            if (clr % 2 == 0) {
+                CharLCD_setBacklight(lcd, BLACK);
+            } else {
+                CharLCD_setBacklight(lcd, WHITE);
+            }
+        }
     } else {
-      BUTTON_SELECT_press = false;
+        BUTTON_SELECT_press = false;
     }
 
     DispMode = DispMode % MAX_DISP_MODE;
@@ -1312,15 +1347,15 @@ void * main_loop (void * UNUSED(p)) {
             DispMode &= 1;
         }
 
-	if (timeMillis() >= timer_display) {
+        if (timeMillis() >= timer_display) {
             timer_display = timeMillis() + LCD_UPDATE_PERIOD;
-    	    get_weather_info(weather);
+            get_weather_info(weather);
             ina_get();
-    	    publish_sensors(weather);
-    	    publish_state();
-    	    publish_piaware();
-    	    lcd_update();
-	}
+            publish_sensors(weather);
+            publish_state();
+            publish_piaware();
+            lcd_update();
+        }
     }
     weather_free(&weather[WEATHER_EXT]);
     weather_free(&weather[WEATHER_INT]);
@@ -1402,11 +1437,12 @@ main (int argc, char * const * argv) {
         {"no-display",                  no_argument,        0, 'D'},
         {"no-weather",                  no_argument,        0, 'V'},
         {"aircraft",                    no_argument,        0, 'A'},
+        {"thremal-zone",                required_argument,  0, 'T'},
         {0, 0, 0, 0}
     };
 
 
-    while ((flags = getopt_long(argc, argv, "i:fdk:h:p:u:P:R:VDAl:L:", long_options, NULL)) != -1) {
+    while ((flags = getopt_long(argc, argv, "i:fdk:h:p:u:P:R:VDAl:L:T:", long_options, NULL)) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -1476,6 +1512,10 @@ main (int argc, char * const * argv) {
             } else {
                 usage();
             }
+            break;
+        }
+        case 'T': {
+            thermal_zone = atoi(optarg);
             break;
         }
         default: {
@@ -1584,7 +1624,7 @@ main (int argc, char * const * argv) {
         sleep(1);
 
         pthread_create( &main_th, NULL, main_loop, NULL);
-        pthread_create( &updater_th, NULL,lcd_updater, NULL);
+        pthread_create( &updater_th, NULL, lcd_updater, NULL);
 // main
 
         fd_set fds;

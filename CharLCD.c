@@ -32,17 +32,16 @@ static void CharLCD_send(CharLCD_t * disp, uint8_t value, uint8_t mode);
 static void CharLCD_write8bits(CharLCD_t * disp, uint8_t value);
 static void CharLCD_pulseEnable(CharLCD_t * disp);
 
-CharLCD_t * CharLCD_new(int bus, int address)
-{
+CharLCD_t * CharLCD_new(int bus, int address) {
     DLOG_INFO("MCP23017 bus: %d addr:%x", bus, address);
 
     CharLCD_t * disp = calloc(1, sizeof(*disp));
     if (!disp) return NULL;
 
 
-   disp->_i2c = MCP23017_new(bus, address);
+    disp->_i2c = MCP23017_new(bus, address);
 
-   disp->_displayfunction = LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS;
+    disp->_displayfunction = LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS;
 
     // the I/O expander pinout
     disp->_rs_pin = 15;
@@ -67,7 +66,7 @@ void CharLCD_destroy(CharLCD_t ** disp) {
     if (!disp || !*disp) return;
     CharLCD_noBlink(*disp);
     CharLCD_noDisplay(*disp);
-    CharLCD_setBacklight(*disp,BLACK);
+    CharLCD_setBacklight(*disp, BLACK);
     MCP23017_destroy(&((*disp)->_i2c));
     free(*disp);
     *disp = NULL;
@@ -92,89 +91,89 @@ void CharLCD_start(CharLCD_t * disp, uint8_t cols, uint8_t lines) {
 
     MCP23017_pinMode(disp->_i2c, disp->_rs_pin, MCP23017_OUTPUT);
     MCP23017_pinMode(disp->_i2c, disp->_enable_pin, MCP23017_OUTPUT);
-    for (uint8_t i=0; i<4; i++)
-      MCP23017_pinMode(disp->_i2c, disp->_data_pins[i], MCP23017_OUTPUT);
+    for (uint8_t i = 0; i < 4; i++)
+        MCP23017_pinMode(disp->_i2c, disp->_data_pins[i], MCP23017_OUTPUT);
 
-    for (uint8_t i=0; i<5; i++) {
-      MCP23017_pinMode(disp->_i2c, disp->_button_pins[i], MCP23017_INPUT);
-      MCP23017_pullUp(disp->_i2c, disp->_button_pins[i], HIGH);
+    for (uint8_t i = 0; i < 5; i++) {
+        MCP23017_pinMode(disp->_i2c, disp->_button_pins[i], MCP23017_INPUT);
+        MCP23017_pullUp(disp->_i2c, disp->_button_pins[i], HIGH);
     }
 
 
 
-  disp->_numlines = lines;
-  disp->_currline = 0;
-  disp->_numcols = cols;
-  disp->_currcol = 0;
+    disp->_numlines = lines;
+    disp->_currline = 0;
+    disp->_numcols = cols;
+    disp->_currcol = 0;
 
 
-  // SEE PAGE 45/46 FOR INITIALIZATION SPECIFICATION!
-  // according to datasheet, we need at least 40ms after power rises above 2.7V
-  // before sending commands. Arduino can turn on way befer 4.5V so we'll wait 50
-  usleep(50000);
-  // Now we pull both RS and R/W low to begin commands
-  MCP23017_digitalWrite(disp->_i2c, disp->_rs_pin, LOW);
-  MCP23017_digitalWrite(disp->_i2c, disp->_enable_pin, LOW);
-  if (disp->_rw_pin != 255) {
-    MCP23017_digitalWrite(disp->_i2c, disp->_rw_pin, LOW);
+    // SEE PAGE 45/46 FOR INITIALIZATION SPECIFICATION!
+    // according to datasheet, we need at least 40ms after power rises above 2.7V
+    // before sending commands. Arduino can turn on way befer 4.5V so we'll wait 50
+    usleep(50000);
+    // Now we pull both RS and R/W low to begin commands
+    MCP23017_digitalWrite(disp->_i2c, disp->_rs_pin, LOW);
+    MCP23017_digitalWrite(disp->_i2c, disp->_enable_pin, LOW);
+    if (disp->_rw_pin != 255) {
+        MCP23017_digitalWrite(disp->_i2c, disp->_rw_pin, LOW);
 
 
-  }
+    }
 
-  //put the LCD into 4 bit or 8 bit mode
-  if (! (disp->_displayfunction & LCD_8BITMODE)) {
-    // this is according to the hitachi HD44780 datasheet
-    // figure 24, pg 46
+    //put the LCD into 4 bit or 8 bit mode
+    if (! (disp->_displayfunction & LCD_8BITMODE)) {
+        // this is according to the hitachi HD44780 datasheet
+        // figure 24, pg 46
 
-    // we start in 8bit mode, try to set 4 bit mode
-    CharLCD_write4bits(disp, 0x03);
-    usleep(4500); // wait min 4.1ms
+        // we start in 8bit mode, try to set 4 bit mode
+        CharLCD_write4bits(disp, 0x03);
+        usleep(4500); // wait min 4.1ms
 
-    // second try
-    CharLCD_write4bits(disp, 0x03);
-    usleep(4500); // wait min 4.1ms
+        // second try
+        CharLCD_write4bits(disp, 0x03);
+        usleep(4500); // wait min 4.1ms
 
-    // third go!
-    CharLCD_write4bits(disp, 0x03);
-    usleep(150);
+        // third go!
+        CharLCD_write4bits(disp, 0x03);
+        usleep(150);
 
-    // finally, set to 8-bit interface
-    CharLCD_write4bits(disp, 0x02);
-  } else {
-    // this is according to the hitachi HD44780 datasheet
-    // page 45 figure 23
+        // finally, set to 8-bit interface
+        CharLCD_write4bits(disp, 0x02);
+    } else {
+        // this is according to the hitachi HD44780 datasheet
+        // page 45 figure 23
 
-    // Send function set command sequence
+        // Send function set command sequence
+        CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
+        usleep(4500);  // wait more than 4.1ms
+
+        // second try
+        CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
+        usleep(150);
+
+        // third go
+        CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
+    }
+
+    // finally, set # lines, font size, etc.
     CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
-    usleep(4500);  // wait more than 4.1ms
 
-    // second try
-    CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
-    usleep(150);
+    // turn the display on with no cursor or blinking default
+    disp->_displaycontrol = LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF;
+    CharLCD_display(disp);
 
-    // third go
-    CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
-  }
+    // clear it off
+    CharLCD_clearDisplay(disp);
 
-  // finally, set # lines, font size, etc.
-  CharLCD_command(disp, LCD_FUNCTIONSET | disp->_displayfunction);
+    // Initialize to default text direction (for romance languages)
+    disp->_displaymode = LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT;
+    // set the entry mode
+    CharLCD_command(disp, LCD_ENTRYMODESET | disp->_displaymode);
 
-  // turn the display on with no cursor or blinking default
-  disp->_displaycontrol = LCD_DISPLAYON | LCD_CURSOROFF | LCD_BLINKOFF;
-  CharLCD_display(disp);
+    // Set text entry to left-to-right (default)
+    CharLCD_leftToRight(disp);
 
-  // clear it off
-  CharLCD_clearDisplay(disp);
-
-  // Initialize to default text direction (for romance languages)
-  disp->_displaymode = LCD_ENTRYLEFT | LCD_ENTRYSHIFTDECREMENT;
-  // set the entry mode
-  CharLCD_command(disp, LCD_ENTRYMODESET | disp->_displaymode);
-
-  // Set text entry to left-to-right (default)
-  CharLCD_leftToRight(disp);
-
-  CharLCD_setCursor(disp, 0, 0);
+    CharLCD_setCursor(disp, 0, 0);
 
 }
 
@@ -196,12 +195,11 @@ void CharLCD_home(CharLCD_t * disp) {
     usleep(2000);  // this command takes a long time!
 }
 
-void CharLCD_setCursor(CharLCD_t * disp, uint8_t col, uint8_t row)
-{
+void CharLCD_setCursor(CharLCD_t * disp, uint8_t col, uint8_t row) {
     if (!disp) return;
     int row_offsets[] = { 0x00, 0x40, 0x14, 0x54 };
     if ( row > disp->_numlines ) {
-        row = disp->_numlines-1;    // we count rows starting w/0
+        row = disp->_numlines - 1;  // we count rows starting w/0
     }
 
     disp->_currline = row;
@@ -231,8 +229,8 @@ void CharLCD_noCursor(CharLCD_t * disp) {
 
 void CharLCD_cursor(CharLCD_t * disp) {
     if (!disp) return;
-  disp->_displaycontrol |= LCD_CURSORON;
-  CharLCD_command(disp, LCD_DISPLAYCONTROL | disp->_displaycontrol);
+    disp->_displaycontrol |= LCD_CURSORON;
+    CharLCD_command(disp, LCD_DISPLAYCONTROL | disp->_displaycontrol);
 }
 
 // Turn on and off the blinking cursor
@@ -293,7 +291,7 @@ void CharLCD_createChar(CharLCD_t * disp, uint8_t location, uint8_t charmap[]) {
     if (!disp) return;
     location &= 0x7; // we only have 8 locations 0-7
     CharLCD_command(disp, LCD_SETCGRAMADDR | (location << 3));
-    for (int i=0; i<8; i++) {
+    for (int i = 0; i < 8; i++) {
         CharLCD_write(disp, charmap[i]);
     }
     CharLCD_command(disp, LCD_SETDDRAMADDR);  // unfortunately resets the location to 0,0
@@ -312,45 +310,39 @@ void CharLCD_print(CharLCD_t * disp, char * text) {
 
     int len = strlen(text);
     //iterate through each character
-    for (int i=0; i<len; i++) {
+    for (int i = 0; i < len; i++) {
         current_char = text[i];
 
-        if (current_char == '\n' ){
+        if (current_char == '\n' ) {
             line++;
 
             if (disp->_left_to_right) {
                 col = 0;
-            }
-            else {
+            } else {
                 col = disp->_numcols - 1;
             }
             CharLCD_setCursor(disp, col, line);
 
-        }
-        else if (col > (disp->_numcols-1) || col < 0){
+        } else if (col > (disp->_numcols - 1) || col < 0) {
             line++;
 
             if (disp->_left_to_right) {
                 col = 0;
-            }
-            else {
+            } else {
                 col = disp->_numcols - 1;
             }
             CharLCD_setCursor(disp, col, line);
             CharLCD_write(disp, current_char);
             if (disp->_left_to_right) {
                 col++;
-            }
-            else {
+            } else {
                 col--;
             }
-        }
-        else {
+        } else {
             CharLCD_write(disp, current_char);
             if (disp->_left_to_right) {
                 col++;
-            }
-            else {
+            } else {
                 col--;
             }
         }
@@ -379,11 +371,11 @@ inline void CharLCD_write(CharLCD_t * disp, uint8_t value) {
 
 // Allows to set the backlight, if the LCD backpack is used
 void CharLCD_setBacklight(CharLCD_t * disp, uint8_t status) {
-  // check if i2c or SPI
-  if (!disp ) return;
-  MCP23017_digitalWrite(disp->_i2c, 8, ~(status >> 2) & 0x1);
-  MCP23017_digitalWrite(disp->_i2c, 7, ~(status >> 1) & 0x1);
-  MCP23017_digitalWrite(disp->_i2c, 6, ~status & 0x1);
+    // check if i2c or SPI
+    if (!disp ) return;
+    MCP23017_digitalWrite(disp->_i2c, 8, ~(status >> 2) & 0x1);
+    MCP23017_digitalWrite(disp->_i2c, 7, ~(status >> 1) & 0x1);
+    MCP23017_digitalWrite(disp->_i2c, 6, ~status & 0x1);
 }
 
 
@@ -400,7 +392,7 @@ void CharLCD_send(CharLCD_t * disp, uint8_t value, uint8_t mode) {
     if (disp->_displayfunction & LCD_8BITMODE) {
         CharLCD_write8bits(disp, value);
     } else {
-        CharLCD_write4bits(disp, value>>4);
+        CharLCD_write4bits(disp, value >> 4);
         CharLCD_write4bits(disp, value);
     }
 }
@@ -419,8 +411,8 @@ void CharLCD_pulseEnable(CharLCD_t * disp) {
 void CharLCD_write4bits(CharLCD_t * disp, uint8_t value) {
     if (!disp ) return;
     for (int i = 0; i < 4; i++) {
-     MCP23017_pinMode(disp->_i2c, disp->_data_pins[i], MCP23017_OUTPUT);
-     MCP23017_digitalWrite(disp->_i2c, disp->_data_pins[i], (value >> i) & 0x01);
+        MCP23017_pinMode(disp->_i2c, disp->_data_pins[i], MCP23017_OUTPUT);
+        MCP23017_digitalWrite(disp->_i2c, disp->_data_pins[i], (value >> i) & 0x01);
     }
     CharLCD_pulseEnable(disp);
 }
@@ -440,7 +432,7 @@ uint8_t CharLCD_readButtons(CharLCD_t * disp) {
     uint8_t reply = 0x1F;
     if (!disp ) return reply;
 
-    for (uint8_t i=0; i<5; i++) {
+    for (uint8_t i = 0; i < 5; i++) {
         reply &= ~((MCP23017_digitalRead(disp->_i2c, disp->_button_pins[i])) << i);
     }
     return reply;

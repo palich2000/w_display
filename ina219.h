@@ -20,8 +20,8 @@
 #define INA_219_DEVICE_BUS_VOLTAGE_RANGE_32 (0b1 << 13)
 #define INA_219_DEVICE_BUS_VOLTAGE_RANGE_16 (0b0 << 13)
 #define INA_219_DEVICE_GAIN_1 (0b00 << 11)
-#define INA_219_DEVICE_GAIN_2 (0b01 << 11) 
-#define INA_219_DEVICE_GAIN_4 (0b10 << 11) 
+#define INA_219_DEVICE_GAIN_2 (0b01 << 11)
+#define INA_219_DEVICE_GAIN_4 (0b10 << 11)
 #define INA_219_DEVICE_GAIN_8 (0b11 << 11)
 #define INA_219_DEVICE_BADC_12_BIT_1_AVERAGE (0b1000 << 7)
 #define INA_219_DEVICE_BADC_12_BIT_2_AVERAGE (0b1001 << 7)
@@ -37,25 +37,25 @@
 #define INA_219_DEVICE_MODE_SHUNT 0b101
 #define INA_219_DEVICE_MODE_BUS 0b110
 
-typedef struct my_ina_219_device{
-	int fd;
-	unsigned current_LSB;
-	unsigned shunt_LSB;
-	unsigned bus_LSB;
+typedef struct my_ina_219_device {
+    int fd;
+    unsigned current_LSB;
+    unsigned shunt_LSB;
+    unsigned bus_LSB;
 
-	uint8_t shunt_on;
-	uint8_t bus_on;
+    uint8_t shunt_on;
+    uint8_t bus_on;
 } ina_219_device;
 
 
-extern ina_219_device* ina_219_device_open(const char * ina_219_device_filename, uint8_t i2c_device_addr);
-extern int ina_219_device_close(ina_219_device *dev);
+extern ina_219_device * ina_219_device_open(const char * ina_219_device_filename, uint8_t i2c_device_addr);
+extern int ina_219_device_close(ina_219_device * dev);
 
-extern int32_t ina_219_device_reset(ina_219_device *dev);
-extern int32_t ina_219_device_config(ina_219_device *dev, uint16_t conf_p);
-extern int32_t ina_219_device_calibrate(ina_219_device *dev, double shunt_resistor_resistance, double max_current);
-extern double ina_219_device_get_current(ina_219_device *dev);
-extern double ina_219_device_get_bus_voltage(ina_219_device *dev);
-extern double ina_219_device_get_shunt_voltage(ina_219_device *dev);
+extern int32_t ina_219_device_reset(ina_219_device * dev);
+extern int32_t ina_219_device_config(ina_219_device * dev, uint16_t conf_p);
+extern int32_t ina_219_device_calibrate(ina_219_device * dev, double shunt_resistor_resistance, double max_current);
+extern double ina_219_device_get_current(ina_219_device * dev);
+extern double ina_219_device_get_bus_voltage(ina_219_device * dev);
+extern double ina_219_device_get_shunt_voltage(ina_219_device * dev);
 
 #endif
