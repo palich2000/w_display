@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <pthread.h>
 #include "dlog.h"
 
 // When the display powers up, it is configured as follows:
@@ -58,7 +59,7 @@ CharLCD_t * CharLCD_new(int bus, int address) {
     disp->_button_pins[3] = 3;
     disp->_button_pins[4] = 4;
     // we can't begin() yet :(
-
+    pthread_mutex_init(&disp->mutex, NULL);
     return disp;
 }
 
@@ -68,6 +69,7 @@ void CharLCD_destroy(CharLCD_t ** disp) {
     CharLCD_noDisplay(*disp);
     CharLCD_setBacklight(*disp, BLACK);
     MCP23017_destroy(&((*disp)->_i2c));
+    pthread_mutex_destroy(&((*disp)->mutex));
     free(*disp);
     *disp = NULL;
 }
@@ -310,6 +312,7 @@ void CharLCD_print(CharLCD_t * disp, char * text) {
 
     int len = strlen(text);
     //iterate through each character
+    pthread_mutex_lock(&disp->mutex);
     for (int i = 0; i < len; i++) {
         current_char = text[i];
 
@@ -346,11 +349,8 @@ void CharLCD_print(CharLCD_t * disp, char * text) {
                 col--;
             }
         }
-
-
     }
-
-
+    pthread_mutex_unlock(&disp->mutex);
 }
 
 /*********** mid level commands, for sending data/cmds */
@@ -373,9 +373,13 @@ inline void CharLCD_write(CharLCD_t * disp, uint8_t value) {
 void CharLCD_setBacklight(CharLCD_t * disp, uint8_t status) {
     // check if i2c or SPI
     if (!disp ) return;
+    pthread_mutex_lock(&disp->mutex);
+
     MCP23017_digitalWrite(disp->_i2c, 8, ~(status >> 2) & 0x1);
     MCP23017_digitalWrite(disp->_i2c, 7, ~(status >> 1) & 0x1);
     MCP23017_digitalWrite(disp->_i2c, 6, ~status & 0x1);
+
+    pthread_mutex_unlock(&disp->mutex);
 }
 
 

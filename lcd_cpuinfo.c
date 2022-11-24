@@ -1042,6 +1042,20 @@ static void * lcd_updater(void * UNUSED(p)) {
     return NULL;
 }
 
+void backlight(CharLCD_t * lcd, int  light_on) { // 1 -on, 0 - off, 2 - switch
+    if (!lcd) return;
+
+    static int clr = 1;
+    if (light_on == 1) clr = 0;
+    if (light_on == 0) clr = 1;
+    clr ++;
+    if (clr % 2 == 0) {
+        CharLCD_setBacklight(lcd, BLACK);
+    } else {
+        CharLCD_setBacklight(lcd, WHITE);
+    }
+}
+
 //------------------------------------------------------------------------------------------------------------
 //
 // system init
@@ -1062,10 +1076,11 @@ int lcd_and_buttons_init(void) {
     }
     CharLCD_start(lcd, 16, 2);
     CharLCD_display(lcd);
-    CharLCD_setBacklight(lcd, WHITE);
 
+    backlight(lcd, 1);
     return  0;
 }
+
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -1118,13 +1133,7 @@ bool boardDataUpdate(void) {
     if (button_data & BUTTON_SELECT) {
         if (!BUTTON_SELECT_press) {
             BUTTON_SELECT_press = true;
-            static int clr = 1;
-            clr ++;
-            if (clr % 2 == 0) {
-                CharLCD_setBacklight(lcd, BLACK);
-            } else {
-                CharLCD_setBacklight(lcd, WHITE);
-            }
+	    backlight(lcd, 2);
         }
     } else {
         BUTTON_SELECT_press = false;
@@ -1687,6 +1696,7 @@ main (int argc, char * const * argv) {
                 }
                 case SIGHUP:
                     daemon_log(LOG_WARNING, "Got SIGHUP");
+                    backlight(lcd,2);
                     break;
 
                 case SIGSEGV:
@@ -1722,6 +1732,7 @@ finish:
     daemon_retval_send(-1);
     daemon_signal_done();
     daemon_pid_file_remove();
+    backlight(lcd,0);
     daemon_log(LOG_INFO, "Exit");
     exit(0);
 }

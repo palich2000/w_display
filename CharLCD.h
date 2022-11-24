@@ -77,6 +77,7 @@ typedef struct CharLCD_t {
 
     uint8_t _i2cAddr;
     MCP23017_t * _i2c;
+    pthread_mutex_t mutex;
 } CharLCD_t;
 
 
