@@ -71,7 +71,7 @@ typedef struct CharLCD_t {
 
     uint8_t _initialized;
 
-    uint8_t _numlines,_currline, _numcols, _currcol;
+    uint8_t _numlines, _currline, _numcols, _currcol;
 
     bool _left_to_right;
 
@@ -80,39 +80,39 @@ typedef struct CharLCD_t {
 } CharLCD_t;
 
 
-    CharLCD_t * CharLCD_new(int bus, int address);
-    void CharLCD_destroy(CharLCD_t ** disp);
+CharLCD_t * CharLCD_new(int bus, int address);
+void CharLCD_destroy(CharLCD_t ** disp);
 
-    void CharLCD_start(CharLCD_t * disp,uint8_t cols, uint8_t rows);
+void CharLCD_start(CharLCD_t * disp, uint8_t cols, uint8_t rows);
 
-    void CharLCD_clearDisplay(CharLCD_t * disp);
-    void CharLCD_home(CharLCD_t * disp);
+void CharLCD_clearDisplay(CharLCD_t * disp);
+void CharLCD_home(CharLCD_t * disp);
 
-    void CharLCD_setCursor(CharLCD_t * disp, uint8_t col, uint8_t row);
+void CharLCD_setCursor(CharLCD_t * disp, uint8_t col, uint8_t row);
 
-    void CharLCD_noDisplay(CharLCD_t * disp);
-    void CharLCD_display(CharLCD_t * disp);
-    void CharLCD_noBlink(CharLCD_t * disp);
-    void CharLCD_blink(CharLCD_t * disp);
-    void CharLCD_noCursor(CharLCD_t * disp);
-    void CharLCD_cursor(CharLCD_t * disp);
-    void CharLCD_scrollDisplayLeft(CharLCD_t * disp);
-    void CharLCD_scrollDisplayRight(CharLCD_t * disp);
-    void CharLCD_leftToRight(CharLCD_t * disp);
-    void CharLCD_rightToLeft(CharLCD_t * disp);
-    void CharLCD_autoscroll(CharLCD_t * disp);
-    void CharLCD_noAutoscroll(CharLCD_t * disp);
+void CharLCD_noDisplay(CharLCD_t * disp);
+void CharLCD_display(CharLCD_t * disp);
+void CharLCD_noBlink(CharLCD_t * disp);
+void CharLCD_blink(CharLCD_t * disp);
+void CharLCD_noCursor(CharLCD_t * disp);
+void CharLCD_cursor(CharLCD_t * disp);
+void CharLCD_scrollDisplayLeft(CharLCD_t * disp);
+void CharLCD_scrollDisplayRight(CharLCD_t * disp);
+void CharLCD_leftToRight(CharLCD_t * disp);
+void CharLCD_rightToLeft(CharLCD_t * disp);
+void CharLCD_autoscroll(CharLCD_t * disp);
+void CharLCD_noAutoscroll(CharLCD_t * disp);
 
-    void CharLCD_createChar(CharLCD_t * disp,uint8_t location, uint8_t charmap[]);
+void CharLCD_createChar(CharLCD_t * disp, uint8_t location, uint8_t charmap[]);
 
-    void CharLCD_command(CharLCD_t * disp, uint8_t value);
-    void CharLCD_write(CharLCD_t * disp, uint8_t value);
+void CharLCD_command(CharLCD_t * disp, uint8_t value);
+void CharLCD_write(CharLCD_t * disp, uint8_t value);
 
-    // only if using backpack
-    void CharLCD_setBacklight(CharLCD_t * disp, uint8_t status);
+// only if using backpack
+void CharLCD_setBacklight(CharLCD_t * disp, uint8_t status);
 
-    uint8_t CharLCD_readButtons(CharLCD_t * disp);
+uint8_t CharLCD_readButtons(CharLCD_t * disp);
 
-    void CharLCD_print(CharLCD_t * disp, char *text);
+void CharLCD_print(CharLCD_t * disp, char * text);
 
 #endif
