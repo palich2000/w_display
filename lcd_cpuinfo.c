@@ -868,9 +868,14 @@ static void publish_state(void) {
         int temp_C = atoi(buf) / 1000;
         const char *topic = create_topic(MQTT_STATE_TOPIC);
 
+        if (isnan(ina_current) || isnan(ina_voltage)) {
+           snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
+                    tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+        } else {
+    	   snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
+                    tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C, ina_current, ina_voltage);
+        }
 
-        snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
-                 tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C, ina_current, ina_voltage);
         daemon_log(LOG_INFO, "%s %s", topic, buf);
         if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
