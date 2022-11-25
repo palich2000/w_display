@@ -1,10 +1,23 @@
+INA219 = yes
+MCP = yes
+
 CC = gcc
 
 CFLAGS = -g -std=c11 -MD -MP  -Wall -Werror -Wfatal-errors -Wextra  -g -I.
 
-OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o CharLCD.o MCP23017.o ina219.o
+OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o
 
-EXTRA_LIBS = -li2c -lpthread -lm -lcrypt -lrt -lmosquitto -lzip
+EXTRA_LIBS = -lpthread -lm -lcrypt -lrt -lmosquitto -lzip
+
+ifdef INA219
+    EXTRA_LIBS += -li2c
+    OBJGROUP += ina219.o
+    CFLAGS += -D CHARLCD=1
+endif
+ifdef MCP
+    OBJGROUP += CharLCD.o MCP23017.o
+    CFLAGS += -D INA219=1
+endif
 
 all: lcd_cpuinfo
 

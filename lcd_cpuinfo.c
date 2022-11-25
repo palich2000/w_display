@@ -42,8 +42,14 @@
 #include "version.h"
 #include "nxjson.h"
 #include "array.h"
-#include "CharLCD.h"
-#include "ina219.h"
+
+#ifdef CHARLCD
+    #include "CharLCD.h"
+#endif
+#ifdef INA219
+    #include "ina219.h"
+#endif
+
 //------------------------------------------------------------------------------------------------------------
 //
 // Global handle Define
@@ -84,7 +90,10 @@ void fill_lcdFb(void) {
     lcdFb[1][LCD_COL] = 0;
 }
 
+#ifdef CHARLCD
 static CharLCD_t * lcd = NULL;
+#endif
+
 double station_lat = 50.371;
 double station_lon = 30.389;
 
@@ -207,6 +216,7 @@ uint64_t timeMillis(void) {
 //
 //------------------------------------------------------------------------------------------------------------
 
+#ifdef INA219
 ina_219_device * ina_219_dev = NULL;
 double ina_voltage = NAN;
 double ina_current = NAN;
@@ -249,7 +259,7 @@ void ina_get(void) {
         ina_current = ina_219_device_get_current(ina_219_dev);
     }
 }
-
+#endif
 //------------------------------------------------------------------------------------------------------------
 //
 // Get little core freq(CPU4)
@@ -903,13 +913,17 @@ static void publish_state(void) {
         int temp_C = atoi(buf) / 1000;
         const char * topic = create_topic(MQTT_STATE_TOPIC);
 
+#ifdef INA219
         if (isnan(ina_current) || isnan(ina_voltage)) {
+#endif
            snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
                     tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+#ifdef INA219
         } else {
     	   snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
                     tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C, ina_current, ina_voltage);
         }
+#endif
         daemon_log(LOG_INFO, "%s %s", topic, buf);
         if ((res = mosquitto_publish (mosq, NULL, topic, (int)strlen(buf), buf, 0, false)) != 0) {
             daemon_log(LOG_ERR, "Can't publish to Mosquitto server %s", mosquitto_strerror(res));
@@ -945,12 +959,18 @@ static void display_weather_info(weather_t * weather[]) {
     int     n;
     memset(buf, 0, sizeof(buf));
     fill_lcdFb();
-
+#ifdef INA219
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %0.2f",
                  weather[WEATHER_INT]->location,
                  sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
                  roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")),
                  ina_voltage);
+#else
+    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
+                 weather[WEATHER_INT]->location,
+                 sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
+                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
+#endif
     memmove((char *)&lcdFb[0][0], buf, (size_t)n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",
                  weather[WEATHER_EXT]->location,
@@ -1032,16 +1052,19 @@ static void * lcd_updater(void * UNUSED(p)) {
         clock_gettime(CLOCK_REALTIME, &ts);
         ts.tv_sec += 1;
         if (pthread_cond_timedwait(&lcd_cond, &lcd_mutex, &ts) != ETIMEDOUT) {
+#ifdef CHARLCD
             CharLCD_setCursor(lcd, 0, 0);
             CharLCD_print(lcd, &lcdFbTD[0][0]);
             CharLCD_setCursor(lcd, 0, 1);
             CharLCD_print(lcd, &lcdFbTD[1][0]);
+#endif
         }
         pthread_mutex_unlock(&lcd_mutex);
     }
     return NULL;
 }
 
+#ifdef CHARLCD
 void backlight(CharLCD_t * lcd, int  light_on) { // 1 -on, 0 - off, 2 - switch
     if (!lcd) return;
 
@@ -1055,12 +1078,14 @@ void backlight(CharLCD_t * lcd, int  light_on) { // 1 -on, 0 - off, 2 - switch
         CharLCD_setBacklight(lcd, WHITE);
     }
 }
+#endif
 
 //------------------------------------------------------------------------------------------------------------
 //
 // system init
 //
 //------------------------------------------------------------------------------------------------------------
+#ifdef CHARLCD
 int lcd_and_buttons_init(void) {
 
     if (no_display) {
@@ -1080,7 +1105,7 @@ int lcd_and_buttons_init(void) {
     backlight(lcd, 1);
     return  0;
 }
-
+#endif
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -1090,19 +1115,8 @@ int lcd_and_buttons_init(void) {
 
 bool boardDataUpdate(void) {
 
-//    static int count = 0;
-//    if (!digitalRead (PORT_BUTTON1) && !digitalRead (PORT_BUTTON2)) {
-//        count ++;
-//        if (count > 3) {
-//            daemon_log(LOG_WARNING, "Poweroff pressed!");
-//            blink_leds();
-//            sync();
-//            daemon_log(LOG_WARNING, "Poweroff!");
-//            reboot(RB_POWER_OFF);
-//        }
-//    }
     int update_flag = 0;
-
+#ifdef CHARLCD
     uint8_t button_data = CharLCD_readButtons(lcd);
     static bool BUTTON_UP_press = false;
     static bool BUTTON_DOWN_press = false;
@@ -1133,12 +1147,12 @@ bool boardDataUpdate(void) {
     if (button_data & BUTTON_SELECT) {
         if (!BUTTON_SELECT_press) {
             BUTTON_SELECT_press = true;
-	    backlight(lcd, 2);
+            backlight(lcd, 2);
         }
     } else {
         BUTTON_SELECT_press = false;
     }
-
+#endif
     DispMode = DispMode % MAX_DISP_MODE;
     //daemon_log(LOG_INFO, "%d %d", DispMode, update_flag);
     return update_flag;
@@ -1160,6 +1174,7 @@ void on_log(struct mosquitto * UNUSED(mosq), void * UNUSED(userdata), int level,
 
 static
 void on_connect(struct mosquitto * m, void * UNUSED(udata), int res) {
+    daemon_log(LOG_INFO,"%s",__FUNCTION__);
     switch (res) {
     case 0:
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
@@ -1265,6 +1280,9 @@ void * mosq_thread_loop(void * p) {
             }
 
             break;
+        default:
+            daemon_log(LOG_ERR, "%s unkown error (%d) from mosquitto_loop", __FUNCTION__, res);
+            break;
         }
     }
     daemon_log(LOG_INFO, "%s finished", __FUNCTION__);
@@ -1363,7 +1381,9 @@ void * main_loop (void * UNUSED(p)) {
         if (timeMillis() >= timer_display) {
             timer_display = timeMillis() + LCD_UPDATE_PERIOD;
             get_weather_info(weather);
+#ifdef INA219
             ina_get();
+#endif
             publish_sensors(weather);
             publish_state();
             publish_piaware();
@@ -1619,12 +1639,12 @@ main (int argc, char * const * argv) {
             }
         }
         main_pid = syscall(SYS_gettid);
-
+#ifdef CHARLCD
         if (lcd_and_buttons_init() < 0) {
             daemon_log(LOG_ERR, "%s: DISPLAY Init failed", __func__);
             goto finish;
         }
-
+#endif
         daemon_log(LOG_INFO, "Compiling regexp: '%s'", mqtt_topic_regex_string);
         int reti = regcomp(&mqtt_topic_regex, mqtt_topic_regex_string, 0);
         if (reti) {
@@ -1633,7 +1653,9 @@ main (int argc, char * const * argv) {
         }
 
         mosq_init();
+#ifdef INA219
         ina_init();
+#endif
         sleep(1);
 
         pthread_create( &main_th, NULL, main_loop, NULL);
@@ -1696,7 +1718,9 @@ main (int argc, char * const * argv) {
                 }
                 case SIGHUP:
                     daemon_log(LOG_WARNING, "Got SIGHUP");
+#ifdef CHARLCD
                     backlight(lcd,2);
+#endif
                     break;
 
                 case SIGSEGV:
@@ -1725,14 +1749,20 @@ finish:
     mosq_destroy();
     pthread_join(main_th, NULL);
     pthread_join(updater_th, NULL);
+#ifdef CHARLCD
     CharLCD_destroy(&lcd);
+#endif
+#ifdef INA219
     ina_done();
+#endif
     FREE(hostname);
     FREE(pathname);
     daemon_retval_send(-1);
     daemon_signal_done();
     daemon_pid_file_remove();
+#ifdef CHARLCD
     backlight(lcd,0);
+#endif
     daemon_log(LOG_INFO, "Exit");
     exit(0);
 }
