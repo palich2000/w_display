@@ -1178,6 +1178,9 @@ void on_connect(struct mosquitto * m, void * UNUSED(udata), int res) {
     switch (res) {
     case 0:
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
+#ifdef CHARLCD
+        mosquitto_subscribe(m, NULL, "tele/main-power/LWT", 0);
+#endif
         mqtt_publish_lwt(true);
         publish_state();
         break;
@@ -1218,9 +1221,20 @@ void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
     if (msg == NULL) {
         return;
     }
+
     daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
                msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
                (char *)msg->payload);
+
+#ifdef CHARLCD
+    if (strcmp(msg->topic, "tele/main-power/LWT")==0) {
+	if (strcasecmp(msg->payload,"online")==0) {
+            backlight(lcd,1);
+        } else {
+            backlight(lcd,0);
+	}
+    }
+#endif
 
     int ret = regexec(&mqtt_topic_regex, msg->topic, 0, NULL, 0);
     if (!ret) {
