@@ -1215,6 +1215,21 @@ void on_subscribe(struct mosquitto * UNUSED(m), void * UNUSED(udata), int UNUSED
 
 regex_t mqtt_topic_regex;
 
+
+#ifdef CHARLCD
+static void rtl_433_control(bool start) {
+    int ret = 0;
+    if (start) {
+        daemon_log(LOG_INFO,"restart rtl_433");
+	ret = system("systemctl restart rtl_433-daemon.service");
+    } else {
+        daemon_log(LOG_INFO,"stop rtl_433");
+	ret = system("systemctl stop rtl_433-daemon.service");
+    }
+    daemon_log(LOG_INFO,"system systemctl result %d", ret);
+}
+#endif
+
 static
 void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
                 const struct mosquitto_message * msg) {
@@ -1230,8 +1245,10 @@ void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
     if (strcmp(msg->topic, "tele/main-power/LWT")==0) {
 	if (strcasecmp(msg->payload,"online")==0) {
             backlight(lcd,1);
+	    rtl_433_control(true);
         } else {
             backlight(lcd,0);
+	    rtl_433_control(false);
 	}
     }
 #endif
