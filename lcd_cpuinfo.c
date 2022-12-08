@@ -1180,6 +1180,10 @@ void on_connect(struct mosquitto * m, void * UNUSED(udata), int res) {
         mosquitto_subscribe(m, NULL, "stat/+/POWER", 0);
 #ifdef CHARLCD
         mosquitto_subscribe(m, NULL, "tele/main-power/LWT", 0);
+#else
+    #ifdef ZIGBEEGATE
+	mosquitto_subscribe(m, NULL, "tele/main-power/LWT", 0);
+    #endif
 #endif
         mqtt_publish_lwt(true);
         publish_state();
@@ -1230,6 +1234,15 @@ static void rtl_433_control(bool start) {
 }
 #endif
 
+#ifdef ZIGBEEGATE
+static void zigbee2mqtt_service_restart(void) {
+    int ret = 0;
+    daemon_log(LOG_INFO,"restart zigbee2mqtt.service");
+    ret = system("systemctl restart zigbee2mqtt.service");
+    daemon_log(LOG_INFO,"system systemctl result %d", ret);
+}
+#endif
+
 static
 void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
                 const struct mosquitto_message * msg) {
@@ -1240,6 +1253,18 @@ void on_message(struct mosquitto * UNUSED(m), void * UNUSED(udata),
     daemon_log(LOG_INFO, "-- got message @ %s: (%d, QoS %d, %s) '%s'",
                msg->topic, msg->payloadlen, msg->qos, msg->retain ? "R" : "!r",
                (char *)msg->payload);
+
+#ifdef ZIGBEEGATE
+    if (strcmp(msg->topic, "tele/main-power/LWT")==0) {
+        struct sysinfo info = {0};
+	bool flag = sysinfo(&info) == 0 && info.uptime > 120;
+	if (flag && strcasecmp(msg->payload,"online")==0) {
+	    zigbee2mqtt_service_restart();
+        } else {
+	     daemon_log(LOG_INFO, "not need to restart zigbee2mqtt"); 
+	}
+    }
+#endif
 
 #ifdef CHARLCD
     if (strcmp(msg->topic, "tele/main-power/LWT")==0) {

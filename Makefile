@@ -1,5 +1,6 @@
-INA219 = yes
-MCP = yes
+#INA219 = yes
+#MCP = yes
+ZIGBEEGATE = yes
 
 CC = gcc
 
@@ -17,6 +18,10 @@ endif
 ifdef MCP
     OBJGROUP += CharLCD.o MCP23017.o
     CFLAGS += -D INA219=1
+endif
+
+ifdef ZIGBEEGATE
+    CFLAGS += -D ZIGBEEGATE=1
 endif
 
 all: lcd_cpuinfo
