@@ -114,6 +114,7 @@ static int DispMode = 1;
 //------------------------------------------------------------------------------------------------------------
 char * faraday_serial_port = NULL;
 faraday_psu_type_t faraday_psu_type = ft_unknown;
+const faraday_reply_t * faraday_reply = NULL;
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -926,7 +927,7 @@ static void publish_state(void) {
 #ifdef INA219
         if (isnan(ina_current) || isnan(ina_voltage)) {
 #endif
-       const faraday_reply_t * faraday_reply = read_faraday_data(faraday_serial_port, faraday_psu_type);
+       faraday_reply = read_faraday_data(faraday_serial_port, faraday_psu_type);
        if (faraday_reply) {
     	   snprintf(buf, sizeof(buf) - 1, 
 	    "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d,\"Current\":%0.3f, \"Voltage\":%0.3f}",
@@ -984,10 +985,18 @@ static void display_weather_info(weather_t * weather[]) {
                  roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")),
                  ina_voltage);
 #else
-    n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
-                 weather[WEATHER_INT]->location,
-                 sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
-                 roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
+    if (faraday_reply) {
+	n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %0.2f",
+                    weather[WEATHER_INT]->location,
+                    sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
+                    roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")),
+                    faraday_reply->voltage_batt/10.);
+    } else {
+	n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%%",
+                    weather[WEATHER_INT]->location,
+                    sensor_value_d_by_name(weather[WEATHER_INT], "temperature_C"),
+                    roundf(sensor_value_d_by_name(weather[WEATHER_INT], "humidity")));
+    }
 #endif
     memmove((char *)&lcdFb[0][0], buf, (size_t)n);
     n = snprintf(buf, sizeof(buf), "%2s%5.1f %2.0f%% %3.0f",

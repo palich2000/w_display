@@ -1,5 +1,5 @@
 #INA219 = yes
-#MCP = yes
+MCP = yes
 #ZIGBEEGATE = yes
 
 CC = gcc
@@ -14,11 +14,12 @@ EXTRA_LIBS = -lpthread -lm -lcrypt -lrt -lmosquitto -lzip
 ifdef INA219
     EXTRA_LIBS += -li2c
     OBJGROUP += ina219.o
-    CFLAGS += -D CHARLCD=1
+    CFLAGS += -D INA219=1
 endif
 ifdef MCP
+    EXTRA_LIBS += -li2c
     OBJGROUP += CharLCD.o MCP23017.o
-    CFLAGS += -D INA219=1
+    CFLAGS += -D CHARLCD=1
 endif
 
 ifdef ZIGBEEGATE
