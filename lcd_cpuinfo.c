@@ -50,6 +50,8 @@
     #include "ina219.h"
 #endif
 
+#include "faraday_serial.h"
+
 //------------------------------------------------------------------------------------------------------------
 //
 // Global handle Define
@@ -104,6 +106,14 @@ double station_lon = 30.389;
 //
 #define MAX_DISP_MODE 5
 static int DispMode = 1;
+
+//------------------------------------------------------------------------------------------------------------
+//
+// Faraday power supply:
+//
+//------------------------------------------------------------------------------------------------------------
+char * faraday_serial_port = NULL;
+faraday_psu_type_t faraday_psu_type = ft_unknown;
 
 //------------------------------------------------------------------------------------------------------------
 //
@@ -916,8 +926,16 @@ static void publish_state(void) {
 #ifdef INA219
         if (isnan(ina_current) || isnan(ina_voltage)) {
 #endif
+       const faraday_reply_t * faraday_reply = read_faraday_data(faraday_serial_port, faraday_psu_type);
+       if (faraday_reply) {
+    	   snprintf(buf, sizeof(buf) - 1, 
+	    "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d,\"Current\":%0.3f, \"Voltage\":%0.3f}",
+                    tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C,
+                    faraday_reply->ac220!=0?faraday_reply->current_batt/10.:faraday_reply->current_batt/-10., faraday_reply->voltage_batt/10.);
+       } else {
            snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
                     tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+       }
 #ifdef INA219
         } else {
     	   snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",
@@ -1437,6 +1455,7 @@ void * main_loop (void * UNUSED(p)) {
         if (timeMillis() >= timer_display) {
             timer_display = timeMillis() + LCD_UPDATE_PERIOD;
             get_weather_info(weather);
+
 #ifdef INA219
             ina_get();
 #endif
@@ -1527,11 +1546,13 @@ main (int argc, char * const * argv) {
         {"no-weather",                  no_argument,        0, 'V'},
         {"aircraft",                    no_argument,        0, 'A'},
         {"thremal-zone",                required_argument,  0, 'T'},
+        {"faraday-serial",              required_argument,  0, 'F'},
+        {"faraday-psu",                 required_argument,  0, 'S'},
         {0, 0, 0, 0}
     };
 
 
-    while ((flags = getopt_long(argc, argv, "i:fdk:h:p:u:P:R:VDAl:L:T:", long_options, NULL)) != -1) {
+    while ((flags = getopt_long(argc, argv, "i:fdk:h:p:u:P:R:VDAl:L:T:F:S:", long_options, NULL)) != -1) {
 
         switch (flags) {
         case 'i': {
@@ -1607,6 +1628,17 @@ main (int argc, char * const * argv) {
             thermal_zone = atoi(optarg);
             break;
         }
+        case 'F': {
+            faraday_serial_port = strdup(optarg);
+            break;
+        }
+        case 'S': {
+            faraday_psu_type = atoi(optarg);
+	    if (faraday_psu_type == 0) {
+		usage();
+	    }
+            break;
+        }
         default: {
             usage();
             break;
@@ -1620,7 +1652,6 @@ main (int argc, char * const * argv) {
         daemon_log(LOG_DEBUG,    "* WARNING !!! Debug mode *");
         daemon_log(LOG_DEBUG,    "**************************");
     }
-
     daemon_log(LOG_INFO, "%s ver %s [%s %s %s] started", application,  git_version, git_branch, __DATE__, __TIME__);
     daemon_log(LOG_INFO, "***************************************************************************");
     daemon_log(LOG_INFO, "pid file: %s", daemon_pid_file_proc());

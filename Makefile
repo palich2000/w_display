@@ -1,12 +1,13 @@
 #INA219 = yes
 #MCP = yes
-ZIGBEEGATE = yes
+#ZIGBEEGATE = yes
 
 CC = gcc
 
 CFLAGS = -g -std=c11 -MD -MP  -Wall -Werror -Wfatal-errors -Wextra  -g -I.
 
-OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o version.o
+OBJGROUP = lcd_cpuinfo.o nxjson.o array.o dlog.o dpid.o dfork.o dexec.o dsignal.o dzip.o dmem.o dnonblock.o \
+    faraday_serial.o version.o
 
 EXTRA_LIBS = -lpthread -lm -lcrypt -lrt -lmosquitto -lzip
 
