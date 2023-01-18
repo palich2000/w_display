@@ -928,15 +928,23 @@ static void publish_state(void) {
         if (isnan(ina_current) || isnan(ina_voltage)) {
 #endif
        faraday_reply = read_faraday_data(faraday_serial_port, faraday_psu_type);
+       static double faraday_voltage_prev = NAN;
+       static double faraday_current_prev = NAN;
+       double faraday_voltage = faraday_voltage_prev;
+       double faraday_current = faraday_current_prev;
        if (faraday_reply) {
-    	   snprintf(buf, sizeof(buf) - 1, 
+    	    faraday_voltage = faraday_reply->voltage_batt/10.;
+            faraday_current = faraday_reply->ac220!=0?faraday_reply->current_batt/10.:faraday_reply->current_batt/-10.;
+       }
+       if (isnan(faraday_voltage) || isnan(faraday_current)) {
+           snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
+                    tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
+       } else {
+	   snprintf(buf, sizeof(buf) - 1,
 	    "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d,\"Current\":%0.3f, \"Voltage\":%0.3f}",
                     tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C,
                     faraday_reply->ac220!=0?faraday_reply->current_batt/10.:faraday_reply->current_batt/-10., faraday_reply->voltage_batt/10.);
-       } else {
-           snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d}",
-                    tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C);
-       }
+        }
 #ifdef INA219
         } else {
     	   snprintf(buf, sizeof(buf) - 1, "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d, \"Current\":%0.3f, \"Voltage\":%0.3f}",

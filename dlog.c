@@ -279,14 +279,14 @@ void hex_dump(const unsigned char * buf, int len) {
         p += sprintf(p, "   ");
 
         for (j = 0; ((j < 16) && (i + j) < len); j++) {
-            if (buf[i + j] >= 32)
+            if (buf[i + j] >= 0x20 && buf[i + j] <= 0x7F)
                 p += sprintf(p, "%c", buf[i + j]);
             else
                 p += sprintf(p, ".");
 
             if (j == 7) p += sprintf(p, " ");
         }
-        daemon_log(LOG_DEBUG, "%s", buffer);;
+        daemon_log(LOG_ERR, "%s", buffer);;
     }
 }
 

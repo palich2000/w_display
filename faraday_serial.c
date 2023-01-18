@@ -108,9 +108,36 @@ const faraday_reply_t* write_command_and_read_reply(int fd, uint8_t * cmd, size_
 
     n = read(fd, &read_buffer, sizeof(read_buffer));
     if (n <= 0 ) {
-	daemon_log(LOG_ERR, "reply n=%d size=%d\n", n, sizeof(reply));
+	daemon_log(LOG_ERR, "err1 reply n=%d size=%d\n", n, sizeof(reply));
 	return NULL;
     }
+
+    if ( n < 2) {
+	daemon_log(LOG_ERR, "err2 reply n=%d size=%d\n", n, sizeof(reply));
+	return NULL;
+    }
+
+    if ( n % sizeof(reply) != 0) {
+	daemon_log(LOG_ERR, "err3 reply n=%d size=%d\n", n, sizeof(reply));
+	return NULL;
+    }
+
+    if (n != sizeof(reply)) {
+	hex_dump(read_buffer, n);
+    }
+    n = sizeof(reply);
+    crc = 0;
+
+    for (size_t i=0; i < (size_t)(n-1); i++) {
+        crc += read_buffer[i];
+    }
+
+    if (crc != read_buffer[n-1]) {
+	daemon_log(LOG_ERR, "reply CRC error 0x%02x != 0x%02x", crc, read_buffer[n-1]);
+	hex_dump(read_buffer, n);
+	//return NULL;
+    }
+
     memmove(&reply, &read_buffer, sizeof(reply));
     return &reply;
 }
