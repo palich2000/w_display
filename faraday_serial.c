@@ -100,7 +100,7 @@ const faraday_reply_t* write_command_and_read_reply(int fd, uint8_t * cmd, size_
     int n = read(fd, echo, sizeof(echo));
 
     if (n != (int)sizeof(echo)) {
-	daemon_log(LOG_ERR, "echo n=%d size=%d\n", n, sizeof(echo));
+	daemon_log(LOG_ERR, "echo n=%d size=%d\n", n, (int)sizeof(echo));
 	return NULL;
     }
 
@@ -108,17 +108,17 @@ const faraday_reply_t* write_command_and_read_reply(int fd, uint8_t * cmd, size_
 
     n = read(fd, &read_buffer, sizeof(read_buffer));
     if (n <= 0 ) {
-	daemon_log(LOG_ERR, "err1 reply n=%d size=%d\n", n, sizeof(reply));
+	daemon_log(LOG_ERR, "err1 reply n=%d size=%d\n", n, (int)sizeof(reply));
 	return NULL;
     }
 
     if ( n < 2) {
-	daemon_log(LOG_ERR, "err2 reply n=%d size=%d\n", n, sizeof(reply));
+	daemon_log(LOG_ERR, "err2 reply n=%d size=%d\n", n, (int)sizeof(reply));
 	return NULL;
     }
 
     if ( n % sizeof(reply) != 0) {
-	daemon_log(LOG_ERR, "err3 reply n=%d size=%d\n", n, sizeof(reply));
+	daemon_log(LOG_ERR, "err3 reply n=%d size=%d\n", n, (int)sizeof(reply));
 	return NULL;
     }
 
