@@ -92,7 +92,7 @@ const faraday_reply_t* write_command_and_read_reply(int fd, uint8_t * cmd, size_
 
     write (fd, cmd, cmd_size);
 
-    usleep ((cmd_size + 30 + sizeof(reply)) * 100);
+    usleep ((cmd_size + 30 + sizeof(reply)) * 120);
 
     uint8_t echo[cmd_size];
     memset(echo,0,sizeof(echo));
