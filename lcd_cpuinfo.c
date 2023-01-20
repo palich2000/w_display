@@ -943,7 +943,9 @@ static void publish_state(void) {
 	   snprintf(buf, sizeof(buf) - 1,
 	    "{\"Time\":\"%s\", \"Uptime\": %ld, \"LoadAverage\":%.2f, \"CPUTemp\":%d,\"Current\":%0.3f, \"Voltage\":%0.3f}",
                     tm_buffer, info.uptime / 3600, info.loads[0] / 65536.0, temp_C,
-                    faraday_reply->ac220!=0?faraday_reply->current_batt/10.:faraday_reply->current_batt/-10., faraday_reply->voltage_batt/10.);
+                    faraday_current, faraday_voltage);
+	    faraday_voltage_prev = faraday_voltage;
+            faraday_current_prev = faraday_current;
         }
 #ifdef INA219
         } else {
