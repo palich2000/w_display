@@ -170,11 +170,22 @@ const faraday_reply_t * read_faraday_data(const char * portname, faraday_psu_typ
 
     const faraday_reply_t * reply_buffer = NULL;
     switch (psu_type) {
+	case ft_normal_asc_off: {
+	    f_cmd13_t cmd_buffer_acc_off = {.c={0x55, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56}};
+	    reply_buffer = write_command_and_read_reply(fd, cmd_buffer_acc_off.c, sizeof(cmd_buffer_acc_off.c));
+        } break;
+
+	case ft_normal_asc_on: {
+	    f_cmd13_t cmd_buffer_acc_on = {.c={0x55, 0x07, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56}};
+	    reply_buffer = write_command_and_read_reply(fd, cmd_buffer_acc_on.c, sizeof(cmd_buffer_acc_on.c));
+        } break;
+
 	case ft_normal: {
 	    f_cmd13_t cmd_buffer = {.c={0x55, 0x01, 0x00, 0x00, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56}};
 	    reply_buffer = write_command_and_read_reply(fd, cmd_buffer.c, sizeof(cmd_buffer.c));
         } break;
+
 	case ft_fire: {
 	    f_cmd17_t cmd_buffer = {.c={0x55, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x56}};
 	    reply_buffer = write_command_and_read_reply(fd, cmd_buffer.c, sizeof(cmd_buffer.c));

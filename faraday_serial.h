@@ -21,6 +21,8 @@ typedef enum faraday_psu_type_t {
     ft_unknown = 0,
     ft_normal = 1,
     ft_fire = 2,
+    ft_normal_asc_off = 3,
+    ft_normal_asc_on = 4,
 } faraday_psu_type_t;
 
 const faraday_reply_t * read_faraday_data(const char * portname, faraday_psu_type_t psu_type);
