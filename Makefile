@@ -1,5 +1,5 @@
 #INA219 = yes
-#MCP = yes
+MCP = yes
 #ZIGBEEGATE = yes
 
 CC = gcc

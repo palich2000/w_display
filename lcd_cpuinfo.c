@@ -422,7 +422,7 @@ static char * get_last_line_from_file(char * filename) {
     FILE * fp = fopen(filename, "r");
 
     if (fp == NULL) {
-        daemon_log(LOG_ERR, "%s : file %s open error!", __func__, filename);
+        daemon_log(LOG_ERR, "%s : file:'%s' open error! %s", __func__, filename, strerror(errno));
         return(ret);
     }
 
